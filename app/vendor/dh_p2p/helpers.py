@@ -255,13 +255,11 @@ class UDP(socket.socket):
     def recv(self, bufsize=4096, timeout=None):
         if timeout:
             self.settimeout(timeout)
-
-        data = self.recvfrom(bufsize)[0]
-
-        if timeout:
-            self.settimeout(None)
-
-        return data
+        try:
+            return self.recvfrom(bufsize)[0]
+        finally:
+            if timeout:
+                self.settimeout(None)
 
     def read(self, return_error=False):
         # During channel negotiation newer firmware can send an unsolicited
