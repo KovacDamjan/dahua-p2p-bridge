@@ -2,7 +2,7 @@
 
 Private, early-stage manager for exposing remote Dahua/PoliceTech cameras to Synology Surveillance Station.
 
-> **Status:** foundation only. The UI, encrypted configuration store, health API and MediaMTX service are ready. The P2P transport adapter is deliberately disabled until the Dahua/Easy4IP implementation is validated on real hardware.
+> **Status:** experimental. The first Easy4IP/PTCP adapter is included and ready for a real-camera connectivity test. Do not rely on it for production recording yet.
 
 ## Synology quick start
 
@@ -24,11 +24,11 @@ The default image name is `ghcr.io/kovacdamjan/dahua-p2p-bridge:latest`. Until t
 - `APP_SECRET_KEY`, `ADMIN_PASSWORD`, `.env`, `data/` and vendor SDK files must never be committed.
 - The web port should only be exposed to a trusted LAN/VPN.
 - Dahua/SmartPSS binaries are not included.
+- Local RTSP tunnels use TCP ports `15540-15569`; restrict them to the trusted LAN.
 
 ## Planned adapters
 
-1. Dahua/PoliceTech Easy4IP P2P video and audio
+1. Stabilize Dahua/PoliceTech Easy4IP P2P video and audio
 2. Dahua motion/SMD/IVS events to Synology webhooks
 3. IMOU OpenSDK adapter
 4. Optional ONVIF event facade
-
