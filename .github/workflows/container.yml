@@ -1,5 +1,6 @@
 name: Build container
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     tags: ['v*']
@@ -31,7 +32,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/kovacdamjan/dahua-p2p-bridge
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
