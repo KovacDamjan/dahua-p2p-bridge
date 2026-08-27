@@ -318,9 +318,10 @@ def main(
     res = device_remote.read_ptcp()
     assert res.body == b"\x00\x03\x01\x00"
 
-    device_remote.request_ptcp(
+    channel_request = (
         b"\x19\x00\x00\x00" + b"\x00\x00\x00\x00" + b"\x00\x00\x00\x00" + sign
     )
+    device_remote.request_ptcp(channel_request)
     channel_response = None
     for _ in range(8):
         try:
@@ -340,6 +341,8 @@ def main(
             reply = bytes([0x14]) + res.body[1:]
             print(f"Replying to PTCP 0x13 with: {reply.hex()}", flush=True)
             device_remote.request_ptcp(reply)
+            print("Resending PTCP channel request 0x19 after challenge", flush=True)
+            device_remote.request_ptcp(channel_request)
             continue
         if res.body and res.body[0] == 0x1A:
             channel_response = res
