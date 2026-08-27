@@ -264,7 +264,30 @@ class UDP(socket.socket):
         return data
 
     def read(self, return_error=False):
-        data = self.recv().decode()
+        # During channel negotiation newer firmware can send an unsolicited
+        # binary datagram before the final DH/HTTP response.  It is not an
+        # UTF-8 protocol error; ignore it here and keep waiting for the text
+        # response that contains LocalAddr/PubAddr.
+        for _ in range(10):
+            raw = self.recv()
+            try:
+                data = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                print(
+                    f":{self.lport} <<< {self.rhost}:{self.rport} "
+                    f"binary datagram ({len(raw)} bytes): {raw[:48].hex()}",
+                    flush=True,
+                )
+                continue
+            if data.startswith("DH") or data.startswith("HTTP/"):
+                break
+            print(
+                f":{self.lport} <<< {self.rhost}:{self.rport} "
+                f"unexpected datagram ({len(raw)} bytes): {raw[:48].hex()}",
+                flush=True,
+            )
+        else:
+            raise ValueError("No DH/HTTP response after 10 unexpected datagrams")
 
         print(f":{self.lport} <<< {self.rhost}:{self.rport}")
         print(data.replace("\r\n", "\n"))
@@ -364,4 +387,3 @@ def parse_response(data):
         "headers": dict(h.split(": ", 1) for h in headers[1:]),
         "data": xmltodict.parse(body) if body.strip() else None,
     }
-
