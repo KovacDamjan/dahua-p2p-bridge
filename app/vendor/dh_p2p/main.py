@@ -216,10 +216,28 @@ def main(
     res = main_remote.read_ptcp()
 
     main_remote.request_ptcp(b"\x17\x00\x00\x00" + b"\x00\x00\x00\x00\x00\x00\x00\x00")
-    res = main_remote.read_ptcp()
-    while len(res.body) == 0:
-        res = main_remote.read_ptcp()
-    sign = res.body[12:]
+    sign = None
+    for _ in range(12):
+        try:
+            res = main_remote.read_ptcp(timeout=3)
+        except socket.timeout:
+            break
+        control = f"0x{res.body[0]:02X}" if res.body else "ACK"
+        print(
+            f"Relay PTCP response: {control} ({len(res.body)} bytes) "
+            f"body={res.body.hex()}",
+            flush=True,
+        )
+        if res.body and res.body[0] == 0x13:
+            print("Acknowledging relay PTCP heartbeat 0x13", flush=True)
+            main_remote.request_ptcp()
+            continue
+        if len(res.body) > 12 and res.body[0] == 0x18:
+            sign = res.body[12:]
+            break
+    if sign is None:
+        raise ConnectionError("Relay server did not return PTCP sign response 0x18")
+    print(f"Relay PTCP sign received ({len(sign)} bytes)", flush=True)
 
     main_remote.request_ptcp()
 
