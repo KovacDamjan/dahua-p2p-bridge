@@ -16,7 +16,7 @@ Generate secrets on any machine with Python:
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-The default image name is `ghcr.io/kovacdamjan/dahua-p2p-bridge:latest`. Until the first GHCR release is published, Container Manager can build from the included `Dockerfile` by replacing `image:` with `build: .`.
+The Synology image is `damjankovac/dahua-p2p-bridge:latest`. The same build is also retained in the private GitHub Container Registry.
 
 For a GUI-only Synology installation, download the private
 `dahua-p2p-bridge-synology-amd64` artifact from the latest successful GitHub
