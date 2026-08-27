@@ -21,6 +21,28 @@ def test_health(tmp_path, monkeypatch):
     assert response.json()["status"] == "ok"
 
 
+def test_login_session_survives_requests_and_logout(tmp_path, monkeypatch):
+    client, _ = make_client(tmp_path, monkeypatch)
+    with client:
+        unauthenticated = client.get("/api/session")
+        login = client.post(
+            "/api/login",
+            json={"username": "admin", "password": "test-password"},
+        )
+        authenticated = client.get("/api/session")
+        logout = client.post("/api/logout")
+        logged_out = client.get("/api/session")
+
+    assert unauthenticated.status_code == 401
+    assert login.status_code == 200
+    assert "bridge_session=" in login.headers["set-cookie"]
+    assert "HttpOnly" in login.headers["set-cookie"]
+    assert authenticated.status_code == 200
+    assert authenticated.json() == {"username": "admin"}
+    assert logout.status_code == 200
+    assert logged_out.status_code == 401
+
+
 def test_camera_password_is_not_returned_or_plaintext(tmp_path, monkeypatch):
     client, module = make_client(tmp_path, monkeypatch)
     auth = ("admin", "test-password")
