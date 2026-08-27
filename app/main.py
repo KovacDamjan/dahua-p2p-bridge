@@ -3,13 +3,15 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
@@ -20,6 +22,9 @@ DATA_PATH = Path(os.getenv("DATABASE_PATH", "data/bridge.db"))
 STATIC_PATH = Path(__file__).parent / "static"
 APP_SECRET = os.getenv("APP_SECRET_KEY", "")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+SESSION_COOKIE = "bridge_session"
+SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(30 * 24 * 60 * 60)))
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
 app = FastAPI(title="Dahua P2P Bridge", version="0.1.0")
 security = HTTPBasic(auto_error=False)
@@ -50,9 +55,49 @@ class CameraPatch(BaseModel):
     synology_webhook: str | None = Field(default=None, max_length=1000)
 
 
-def require_auth(credentials: HTTPBasicCredentials | None = Depends(security)) -> None:
+class LoginInput(BaseModel):
+    username: str
+    password: str
+
+
+def _session_signing_key() -> bytes:
+    if len(APP_SECRET) < 24:
+        raise HTTPException(503, "APP_SECRET_KEY must contain at least 24 characters")
+    return hashlib.sha256(APP_SECRET.encode()).digest()
+
+
+def create_session_token() -> str:
+    payload = json.dumps(
+        {"user": "admin", "exp": int(time.time()) + SESSION_MAX_AGE, "nonce": secrets.token_hex(8)},
+        separators=(",", ":"),
+    ).encode()
+    encoded = base64.urlsafe_b64encode(payload).rstrip(b"=")
+    signature = hmac.new(_session_signing_key(), encoded, hashlib.sha256).digest()
+    return f"{encoded.decode()}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
+
+
+def valid_session_token(token: str | None) -> bool:
+    if not token or "." not in token:
+        return False
+    try:
+        encoded, supplied_signature = token.split(".", 1)
+        expected = hmac.new(_session_signing_key(), encoded.encode(), hashlib.sha256).digest()
+        supplied = base64.urlsafe_b64decode(supplied_signature + "=" * (-len(supplied_signature) % 4))
+        if not hmac.compare_digest(expected, supplied):
+            return False
+        payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        return payload.get("user") == "admin" and int(payload.get("exp", 0)) > int(time.time())
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return False
+
+
+def require_auth(
+    request: Request, credentials: HTTPBasicCredentials | None = Depends(security)
+) -> None:
     if not ADMIN_PASSWORD:
         raise HTTPException(503, "ADMIN_PASSWORD is not configured")
+    if valid_session_token(request.cookies.get(SESSION_COOKIE)):
+        return
     valid_user = credentials is not None and hmac.compare_digest(credentials.username, "admin")
     valid_password = credentials is not None and hmac.compare_digest(credentials.password, ADMIN_PASSWORD)
     if not (valid_user and valid_password):
@@ -142,6 +187,37 @@ def index():
 @app.get("/api/health")
 def health():
     return {"status": "ok", "version": app.version, "p2p_engine": "not-installed"}
+
+
+@app.post("/api/login")
+def login(login_data: LoginInput, response: Response):
+    valid_user = hmac.compare_digest(login_data.username, "admin")
+    valid_password = bool(ADMIN_PASSWORD) and hmac.compare_digest(
+        login_data.password, ADMIN_PASSWORD
+    )
+    if not (valid_user and valid_password):
+        raise HTTPException(401, "Napačno uporabniško ime ali geslo")
+    response.set_cookie(
+        SESSION_COOKIE,
+        create_session_token(),
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        samesite="strict",
+        secure=COOKIE_SECURE,
+        path="/",
+    )
+    return {"username": "admin"}
+
+
+@app.post("/api/logout")
+def logout(response: Response):
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"status": "ok"}
+
+
+@app.get("/api/session", dependencies=[Depends(require_auth)])
+def session_info():
+    return {"username": "admin"}
 
 
 @app.get("/api/cameras", dependencies=[Depends(require_auth)])
