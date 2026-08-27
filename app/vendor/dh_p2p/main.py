@@ -97,8 +97,7 @@ def main(
                 flush=True,
             )
             p2psrv_remote.request(f"/probe/device/{serial}")
-            p2psrv_remote.request(f"/info/device/{serial}", should_read=False)
-            res = p2psrv_remote.read(return_error=True)
+            res = p2psrv_remote.request(f"/info/device/{serial}")
             break
         except (OSError, socket.timeout) as error:
             last_device_probe_error = error
