@@ -299,16 +299,36 @@ def main(
     device_remote.request_ptcp(
         b"\x19\x00\x00\x00" + b"\x00\x00\x00\x00" + b"\x00\x00\x00\x00" + sign
     )
-    res = device_remote.read_ptcp()
-    if len(res.body) == 0:
-        res = device_remote.read_ptcp()
-    assert res.body[0] == 0x1A
+    channel_response = None
+    for _ in range(8):
+        try:
+            res = device_remote.read_ptcp(timeout=3)
+        except socket.timeout:
+            break
+        control = f"0x{res.body[0]:02X}" if res.body else "ACK"
+        print(f"PTCP channel response: {control} ({len(res.body)} bytes)", flush=True)
+        if res.body and res.body[0] == 0x1A:
+            channel_response = res
+            break
+    if channel_response is None:
+        raise ConnectionError("Device did not return PTCP channel response 0x1A")
 
     device_remote.request_ptcp(
         b"\x1b\x00\x00\x00" + b"\x00\x00\x00\x00" + b"\x00\x00\x00\x00"
     )
-    res = device_remote.read_ptcp()
-    assert len(res.body) == 0
+    close_ack = None
+    for _ in range(6):
+        try:
+            res = device_remote.read_ptcp(timeout=3)
+        except socket.timeout:
+            break
+        control = f"0x{res.body[0]:02X}" if res.body else "ACK"
+        print(f"PTCP setup acknowledgement: {control} ({len(res.body)} bytes)", flush=True)
+        if not res.body:
+            close_ack = res
+            break
+    if close_ack is None:
+        raise ConnectionError("Device did not acknowledge PTCP channel setup")
 
     print("Ready to connect", flush=True)
     print("Test with: rtsp://127.0.0.1/cam/realmonitor?channel=1&subtype=0")
