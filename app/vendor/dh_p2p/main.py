@@ -49,8 +49,36 @@ def main(
             ]
         )
 
-    main_remote = UDP(main_server, main_port, debug)
-    res = main_remote.request("/probe/p2psrv")
+    fallback_servers = os.getenv(
+        "P2P_MAIN_SERVERS",
+        "www.easy4ipcloud.com,146.235.211.50,146.235.223.187,"
+        "155.248.199.231,159.54.166.208,159.54.167.231,192.9.243.233",
+    ).split(",")
+    main_remote = None
+    last_probe_error = None
+    for candidate in fallback_servers:
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        probe = UDP(candidate, main_port, debug)
+        probe.settimeout(8)
+        try:
+            print(f"Probing P2P server {candidate}:{main_port}", flush=True)
+            res = probe.request("/probe/p2psrv")
+            probe.settimeout(None)
+            main_remote = probe
+            main_server = candidate
+            print(f"Selected P2P server {candidate}:{main_port}", flush=True)
+            break
+        except (OSError, socket.timeout) as error:
+            last_probe_error = error
+            print(f"P2P server {candidate}:{main_port} did not respond: {error}", flush=True)
+            probe.close()
+
+    if main_remote is None:
+        raise ConnectionError(
+            f"No Easy4IP P2P server responded on UDP {main_port}: {last_probe_error}"
+        )
 
     res = main_remote.request(f"/online/p2psrv/{serial}")
 
