@@ -278,10 +278,19 @@ def main(
             print("".join(f"\\x{b:02X}" for b in data))
             device_remote.send(data)
 
+    # Cameras do not necessarily acknowledge every repeated hole-punch packet.
+    # Drain what is available, then continue instead of waiting forever for an
+    # arbitrary fifth reply.
+    replies = 0
     for _ in range(5):
-        data = device_remote.recv()
+        try:
+            data = device_remote.recv(timeout=2)
+        except socket.timeout:
+            break
+        replies += 1
         print("Data <<<")
         print("".join(f"\\x{b:02X}" for b in data))
+    print(f"Hole-punch acknowledgements received: {replies}", flush=True)
 
     device_remote.request_ptcp(b"\x00\x03\x01\x00")
     res = device_remote.read_ptcp()
