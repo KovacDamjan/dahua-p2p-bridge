@@ -85,11 +85,32 @@ def main(
     p2psrv_server, p2psrv_port = res["data"]["body"]["US"].split(":")
     p2psrv_port = int(p2psrv_port)
 
-    p2psrv_remote = UDP(p2psrv_server, p2psrv_port, debug)
-    res = p2psrv_remote.request(f"/probe/device/{serial}")
-    p2psrv_remote.request(f"/info/device/{serial}", should_read=False)
-    res = p2psrv_remote.read(return_error=True)
-    p2psrv_remote.close()
+    res = None
+    last_device_probe_error = None
+    for attempt in range(1, 4):
+        p2psrv_remote = UDP(p2psrv_server, p2psrv_port, debug)
+        p2psrv_remote.settimeout(8)
+        try:
+            print(
+                f"Probing device via {p2psrv_server}:{p2psrv_port} "
+                f"(attempt {attempt}/3)",
+                flush=True,
+            )
+            p2psrv_remote.request(f"/probe/device/{serial}")
+            p2psrv_remote.request(f"/info/device/{serial}", should_read=False)
+            res = p2psrv_remote.read(return_error=True)
+            break
+        except (OSError, socket.timeout) as error:
+            last_device_probe_error = error
+            print(f"Device probe attempt {attempt}/3 failed: {error}", flush=True)
+        finally:
+            p2psrv_remote.close()
+
+    if res is None:
+        raise ConnectionError(
+            f"Device server {p2psrv_server}:{p2psrv_port} did not respond "
+            f"after 3 attempts: {last_device_probe_error}"
+        )
 
     # The salt is only needed to authenticate the channel setup, so a server that
     # will not answer here must not take the whole handshake down with it.
