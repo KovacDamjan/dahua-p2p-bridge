@@ -334,8 +334,8 @@ Content-Length: {len(body)}
 
         return self.read() if should_read else None
 
-    def read_ptcp(self):
-        data = self.recv()
+    def read_ptcp(self, timeout=None):
+        data = self.recv(timeout=timeout)
 
         if self.debug:
             print(f":{self.lport} <<< {self.rhost}:{self.rport}")
