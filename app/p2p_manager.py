@@ -76,7 +76,7 @@ class P2PManager:
                 state.logs[:] = state.logs[-100:]
                 if "Ready to connect" in line:
                     state.status = "online"
-                elif line.startswith("Error:") or "Traceback" in line:
+                elif "Error:" in line or "Traceback" in line:
                     state.last_error = line
 
         return_code = state.process.wait()
