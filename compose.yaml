@@ -12,6 +12,7 @@ services:
       MEDIAMTX_RTSP_PORT: 8554
     ports:
       - "8095:8095"
+      - "15540-15569:15540-15569"
     volumes:
       - ./data:/app/data
     depends_on:
@@ -30,4 +31,3 @@ services:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
     security_opt:
       - no-new-privileges:true
-
