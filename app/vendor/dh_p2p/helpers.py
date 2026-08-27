@@ -304,6 +304,7 @@ class UDP(socket.socket):
     def request(self, path, body="", auth=True, should_read=True):
         global CSEQ
         CSEQ += 1
+        request_cseq = CSEQ
 
         nonce = random.randrange(2**31)
         curdate = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -332,7 +333,32 @@ Content-Length: {len(body)}
         print(req)
         self.send(req.replace("\n", "\r\n").encode())
 
-        return self.read() if should_read else None
+        if not should_read:
+            return None
+
+        # UDP responses may include a provisional 1xx response followed by the
+        # final response. They may also arrive late, after the next request was
+        # sent. Match by CSeq so /info/device cannot accidentally consume the
+        # trailing response from /probe/device.
+        for _ in range(10):
+            response = self.read()
+            response_cseq = str(response.get("headers", {}).get("CSeq", ""))
+            if response_cseq and response_cseq != str(request_cseq):
+                print(
+                    f"Ignoring delayed response CSeq {response_cseq}; "
+                    f"waiting for {request_cseq}",
+                    flush=True,
+                )
+                continue
+            if response["code"] < 200:
+                print(
+                    f"Ignoring provisional response {response['code']} "
+                    f"for CSeq {request_cseq}",
+                    flush=True,
+                )
+                continue
+            return response
+        raise ConnectionError(f"No final response received for CSeq {request_cseq}")
 
     def read_ptcp(self, timeout=None):
         data = self.recv(timeout=timeout)
