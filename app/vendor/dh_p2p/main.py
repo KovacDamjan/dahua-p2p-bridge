@@ -117,7 +117,8 @@ def main(
     info = {}
 
     if res["code"] < 300:
-        info = get_device_info(res["data"]["body"].get("Info"))
+        response_body = res.get("data", {}).get("body") or {}
+        info = get_device_info(response_body.get("Info"))
     else:
         print("Could not read device info:", res["status"])
 
