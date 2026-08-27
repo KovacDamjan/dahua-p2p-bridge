@@ -44,3 +44,16 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      - name: Export Synology image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker pull ghcr.io/kovacdamjan/dahua-p2p-bridge:latest
+          docker tag ghcr.io/kovacdamjan/dahua-p2p-bridge:latest dahua-p2p-bridge:latest
+          docker save dahua-p2p-bridge:latest -o dahua-p2p-bridge-amd64.tar
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: dahua-p2p-bridge-synology-amd64
+          path: dahua-p2p-bridge-amd64.tar
+          compression-level: 0
+          retention-days: 30
