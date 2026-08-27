@@ -14,6 +14,8 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
+from app.p2p_manager import P2PManager
+
 DATA_PATH = Path(os.getenv("DATABASE_PATH", "data/bridge.db"))
 STATIC_PATH = Path(__file__).parent / "static"
 APP_SECRET = os.getenv("APP_SECRET_KEY", "")
@@ -21,6 +23,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 app = FastAPI(title="Dahua P2P Bridge", version="0.1.0")
 security = HTTPBasic(auto_error=False)
+p2p_manager = P2PManager()
 
 
 class CameraInput(BaseModel):
@@ -99,6 +102,20 @@ def init_db() -> None:
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    with db() as connection:
+        rows = connection.execute("SELECT * FROM cameras WHERE enabled=1").fetchall()
+    for row in rows:
+        try:
+            password = cipher().decrypt(row["password_enc"].encode()).decode()
+            p2p_manager.start(dict(row), password)
+        except (InvalidToken, ValueError) as error:
+            # The status endpoint exposes the actionable error after a manual retry.
+            print(f"Could not start camera {row['id']}: {error}")
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    p2p_manager.stop_all()
 
 
 def public_camera(row: sqlite3.Row) -> dict:
@@ -106,7 +123,14 @@ def public_camera(row: sqlite3.Row) -> dict:
     item.pop("password_enc", None)
     item["enabled"] = bool(item["enabled"])
     item["motion_enabled"] = bool(item["motion_enabled"])
-    item["rtsp_path"] = f"rtsp://NAS-IP:8554/camera-{item['id']}"
+    worker = p2p_manager.status(item["id"])
+    item["status"] = worker["status"]
+    item["last_error"] = worker["last_error"]
+    item["rtsp_path"] = (
+        f"rtsp://NAS-IP:{p2p_manager.port_for(item['id'])}"
+        f"/cam/realmonitor?channel={item['channel'] + 1}"
+        f"&subtype={0 if item['stream'] == 'main' else 1}"
+    )
     return item
 
 
@@ -139,7 +163,10 @@ def add_camera(camera: CameraInput):
                  camera.stream, camera.enabled, camera.motion_enabled, camera.synology_webhook),
             )
             row = connection.execute("SELECT * FROM cameras WHERE id=?", (cursor.lastrowid,)).fetchone()
-            return public_camera(row)
+            result = public_camera(row)
+        if camera.enabled and camera.vendor in ("dahua", "policetech"):
+            p2p_manager.start(dict(row), camera.password)
+        return result
     except sqlite3.IntegrityError:
         raise HTTPException(409, "A camera with this serial already exists")
 
@@ -156,11 +183,18 @@ def update_camera(camera_id: int, patch: CameraPatch):
         cursor = connection.execute(f"UPDATE cameras SET {fields} WHERE id=?", (*values.values(), camera_id))
         if cursor.rowcount == 0:
             raise HTTPException(404, "Camera not found")
-        return public_camera(connection.execute("SELECT * FROM cameras WHERE id=?", (camera_id,)).fetchone())
+        row = connection.execute("SELECT * FROM cameras WHERE id=?", (camera_id,)).fetchone()
+        result = public_camera(row)
+    p2p_manager.stop(camera_id)
+    if row["enabled"] and row["vendor"] in ("dahua", "policetech"):
+        password = cipher().decrypt(row["password_enc"].encode()).decode()
+        p2p_manager.start(dict(row), password)
+    return result
 
 
 @app.delete("/api/cameras/{camera_id}", status_code=204, dependencies=[Depends(require_auth)])
 def delete_camera(camera_id: int):
+    p2p_manager.stop(camera_id)
     with db() as connection:
         if connection.execute("DELETE FROM cameras WHERE id=?", (camera_id,)).rowcount == 0:
             raise HTTPException(404, "Camera not found")
@@ -172,4 +206,19 @@ def test_camera(camera_id: int):
         row = connection.execute("SELECT * FROM cameras WHERE id=?", (camera_id,)).fetchone()
         if row is None:
             raise HTTPException(404, "Camera not found")
-    raise HTTPException(501, "P2P adapter is not installed yet; configuration was saved safely")
+    if row["vendor"] not in ("dahua", "policetech"):
+        raise HTTPException(501, f"P2P adapter for {row['vendor']} is not implemented yet")
+    try:
+        password = cipher().decrypt(row["password_enc"].encode()).decode()
+        state = p2p_manager.start(dict(row), password)
+    except (InvalidToken, ValueError) as error:
+        raise HTTPException(400, str(error))
+    return {"status": state.status, "port": state.port}
+
+
+@app.get("/api/cameras/{camera_id}/status", dependencies=[Depends(require_auth)])
+def camera_status(camera_id: int):
+    with db() as connection:
+        if connection.execute("SELECT 1 FROM cameras WHERE id=?", (camera_id,)).fetchone() is None:
+            raise HTTPException(404, "Camera not found")
+    return p2p_manager.status(camera_id)
