@@ -1,7 +1,7 @@
 services:
   bridge-manager:
-    image: dahua-p2p-bridge:latest
-    pull_policy: never
+    image: damjankovac/dahua-p2p-bridge:latest
+    pull_policy: always
     container_name: dahua-p2p-bridge
     restart: unless-stopped
     environment:
@@ -16,4 +16,3 @@ services:
       - ./data:/app/data
     security_opt:
       - no-new-privileges:true
-
