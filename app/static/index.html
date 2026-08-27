@@ -15,7 +15,7 @@
   </div>
 </section>
 <main id="app" class="wrap hidden">
-  <div class="top"><div><h1>Dahua P2P Bridge</h1><p class="muted">Večkameriski P2P prehod za Synology Surveillance Station</p></div><button id="logout" class="secondary">Odjava</button></div>
+  <div class="top"><div><h1>Dahua P2P Bridge</h1><p class="muted">Večkameriski P2P prehod za Synology Surveillance Station · <span id="app-version">verzija …</span></p></div><button id="logout" class="secondary">Odjava</button></div>
   <section class="card"><h2>Dodaj kamero</h2><form id="form" class="camera-form">
     <input name="name" placeholder="Ime kamere" required>
     <select name="vendor"><option value="dahua">Dahua</option><option value="policetech">PoliceTech</option><option value="imou">IMOU</option></select>
@@ -36,5 +36,5 @@ function esc(v){const d=document.createElement('div');d.textContent=String(v);re
 document.querySelector('#form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const body=Object.fromEntries(f);body.channel=Number(body.channel);body.enabled=true;body.motion_enabled=true;try{await request('/api/cameras',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});e.target.reset();document.querySelector('#message').textContent='Kamera je shranjena.';load()}catch(err){document.querySelector('#message').textContent=err.message}};
 document.querySelector('#login-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await request('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(f))});document.querySelector('#login-error').textContent='';e.target.password.value='';showApp();load()}catch(err){document.querySelector('#login-error').textContent=err.message}};
 document.querySelector('#logout').onclick=async()=>{await fetch('/api/logout',{method:'POST'});showLogin()};
-(async()=>{try{await request('/api/session');showApp();load()}catch{showLogin()}})();
+(async()=>{try{const health=await fetch('/api/health',{cache:'no-store'}).then(r=>r.json());document.querySelector('#app-version').textContent='verzija '+health.version}catch{}try{await request('/api/session');showApp();load()}catch{showLogin()}})();
 </script></body></html>
