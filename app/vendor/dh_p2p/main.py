@@ -146,9 +146,11 @@ def main(
         "<body><Client>:0</Client></body>",
     )
 
+    device_remote.settimeout(12)
     res = device_remote.read(return_error=True)
     if res["code"] < 200:
         res = device_remote.read(return_error=True)
+    device_remote.settimeout(None)
 
     if res["code"] >= 400:
         print("Error:", res["status"])
