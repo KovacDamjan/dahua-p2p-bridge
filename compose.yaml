@@ -1,6 +1,6 @@
 services:
   bridge-manager:
-    image: ghcr.io/kovacdamjan/dahua-p2p-bridge:latest
+    image: damjankovac/dahua-p2p-bridge:latest
     container_name: dahua-p2p-bridge
     restart: unless-stopped
     environment:
