@@ -4,12 +4,19 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Dahua P2P Bridge</title>
   <style>
-    :root{font-family:Inter,system-ui,sans-serif;color:#e8eef7;background:#0b1220}body{margin:0}.wrap{max-width:1100px;margin:auto;padding:32px 20px}h1{margin:0}.muted{color:#91a0b8}.card{background:#121c2e;border:1px solid #26344c;border-radius:14px;padding:20px;margin-top:20px}form{display:grid;grid-template-columns:2fr 1fr 2fr 1fr;gap:12px}input,select,button{box-sizing:border-box;border-radius:8px;border:1px solid #384a68;background:#0e1728;color:#eef;padding:11px}button{background:#2878ff;border:0;font-weight:650;cursor:pointer}.danger{background:#923b48}.secondary{background:#334765}.actions{display:flex;gap:6px}.row{display:grid;grid-template-columns:2fr 1fr 1fr 2fr auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #26344c}.badge{font-size:12px;padding:4px 8px;border-radius:20px;background:#493d19;color:#ffd979}code{color:#8dc1ff}@media(max-width:760px){form,.row{grid-template-columns:1fr}.row button{width:100%}}
+    :root{font-family:Inter,system-ui,sans-serif;color:#e8eef7;background:#0b1220}body{margin:0}.wrap{max-width:1100px;margin:auto;padding:32px 20px}h1{margin:0}.muted{color:#91a0b8}.top{display:flex;justify-content:space-between;align-items:center;gap:20px}.card{background:#121c2e;border:1px solid #26344c;border-radius:14px;padding:20px;margin-top:20px}form.camera-form{display:grid;grid-template-columns:2fr 1fr 2fr 1fr;gap:12px}input,select,button{box-sizing:border-box;border-radius:8px;border:1px solid #384a68;background:#0e1728;color:#eef;padding:11px}button{background:#2878ff;border:0;font-weight:650;cursor:pointer}.danger{background:#923b48}.secondary{background:#334765}.actions{display:flex;gap:6px}.row{display:grid;grid-template-columns:2fr 1fr 1fr 2fr auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #26344c}.badge{font-size:12px;padding:4px 8px;border-radius:20px;background:#493d19;color:#ffd979}code{color:#8dc1ff}.login-screen{position:fixed;inset:0;display:grid;place-items:center;background:radial-gradient(circle at top,#152948,#080d17);z-index:10}.login-card{width:min(390px,calc(100% - 40px));background:#121c2e;border:1px solid #304463;border-radius:18px;padding:30px;box-shadow:0 24px 80px #0008}.login-card form{display:grid;gap:12px}.login-card input,.login-card button{width:100%}.login-error{min-height:20px;color:#ff9aa8}.hidden{display:none!important}@media(max-width:760px){form.camera-form,.row{grid-template-columns:1fr}.row button{width:100%}}
   </style>
 </head>
-<body><main class="wrap">
-  <h1>Dahua P2P Bridge</h1><p class="muted">Večkameriski P2P prehod za Synology Surveillance Station</p>
-  <section class="card"><h2>Dodaj kamero</h2><form id="form">
+<body>
+<section id="login-screen" class="login-screen">
+  <div class="login-card"><h1>Dahua P2P Bridge</h1><p class="muted">Prijava v upravljanje kamer</p>
+    <form id="login-form"><input name="username" value="admin" autocomplete="username" required><input name="password" type="password" placeholder="Geslo" autocomplete="current-password" required><button>Prijava</button></form>
+    <p id="login-error" class="login-error"></p>
+  </div>
+</section>
+<main id="app" class="wrap hidden">
+  <div class="top"><div><h1>Dahua P2P Bridge</h1><p class="muted">Večkameriski P2P prehod za Synology Surveillance Station</p></div><button id="logout" class="secondary">Odjava</button></div>
+  <section class="card"><h2>Dodaj kamero</h2><form id="form" class="camera-form">
     <input name="name" placeholder="Ime kamere" required>
     <select name="vendor"><option value="dahua">Dahua</option><option value="policetech">PoliceTech</option><option value="imou">IMOU</option></select>
     <input name="serial" placeholder="Serijska številka" required autocomplete="off">
@@ -21,11 +28,13 @@
   </form><p id="message" class="muted"></p></section>
   <section class="card"><h2>Kamere</h2><div id="cameras" class="muted">Za prikaz vnesi skrbniške podatke.</div></section>
 </main><script>
-let auth='';
-async function login(){const u=prompt('Uporabniško ime','admin');const p=prompt('Geslo aplikacije');auth='Basic '+btoa(u+':'+p);await load()}
-async function request(url,options={}){options.headers={...(options.headers||{}),Authorization:auth};const r=await fetch(url,options);if(r.status===401){auth='';throw Error('Napačni prijavni podatki')}if(!r.ok){let d={};try{d=await r.json()}catch{}throw Error(d.detail||r.statusText)}return r.status===204?null:r.json()}
-async function load(){try{const list=await request('/api/cameras');const el=document.querySelector('#cameras');el.innerHTML=list.length?'':'Ni dodanih kamer.';for(const c of list){const row=document.createElement('div');row.className='row';row.innerHTML=`<strong>${esc(c.name)}</strong><span>${esc(c.vendor)}</span><span class="badge">${esc(c.status)}</span><code>${esc(c.rtsp_path)}</code><span class="actions"><button class="secondary test">Poveži</button><button class="danger delete">Odstrani</button></span>`;row.querySelector('.test').onclick=async()=>{try{await request('/api/cameras/'+c.id+'/test',{method:'POST'});document.querySelector('#message').textContent='P2P povezovanje se je začelo.';setTimeout(load,3000)}catch(e){document.querySelector('#message').textContent=e.message}};row.querySelector('.delete').onclick=async()=>{if(confirm('Odstranim kamero?')){await request('/api/cameras/'+c.id,{method:'DELETE'});load()}};el.append(row)}}catch(e){document.querySelector('#cameras').textContent=e.message;if(!auth)setTimeout(login,50)}}
+function showLogin(){document.querySelector('#app').classList.add('hidden');document.querySelector('#login-screen').classList.remove('hidden')}
+function showApp(){document.querySelector('#login-screen').classList.add('hidden');document.querySelector('#app').classList.remove('hidden')}
+async function request(url,options={}){const r=await fetch(url,options);if(r.status===401){showLogin();throw Error('Seja je potekla')}if(!r.ok){let d={};try{d=await r.json()}catch{}throw Error(d.detail||r.statusText)}return r.status===204?null:r.json()}
+async function load(){try{const list=await request('/api/cameras');const el=document.querySelector('#cameras');el.innerHTML=list.length?'':'Ni dodanih kamer.';for(const c of list){const row=document.createElement('div');row.className='row';row.innerHTML=`<strong>${esc(c.name)}</strong><span>${esc(c.vendor)}</span><span class="badge">${esc(c.status)}</span><code>${esc(c.rtsp_path)}</code><span class="actions"><button class="secondary test">Poveži</button><button class="danger delete">Odstrani</button></span>`;row.querySelector('.test').onclick=async()=>{try{await request('/api/cameras/'+c.id+'/test',{method:'POST'});document.querySelector('#message').textContent='P2P povezovanje se je začelo.';setTimeout(load,3000)}catch(e){document.querySelector('#message').textContent=e.message}};row.querySelector('.delete').onclick=async()=>{if(confirm('Odstranim kamero?')){await request('/api/cameras/'+c.id,{method:'DELETE'});load()}};el.append(row)}}catch(e){document.querySelector('#cameras').textContent=e.message}}
 function esc(v){const d=document.createElement('div');d.textContent=String(v);return d.innerHTML}
 document.querySelector('#form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const body=Object.fromEntries(f);body.channel=Number(body.channel);body.enabled=true;body.motion_enabled=true;try{await request('/api/cameras',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});e.target.reset();document.querySelector('#message').textContent='Kamera je shranjena.';load()}catch(err){document.querySelector('#message').textContent=err.message}};
-login();
+document.querySelector('#login-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await request('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(f))});document.querySelector('#login-error').textContent='';e.target.password.value='';showApp();load()}catch(err){document.querySelector('#login-error').textContent=err.message}};
+document.querySelector('#logout').onclick=async()=>{await fetch('/api/logout',{method:'POST'});showLogin()};
+(async()=>{try{await request('/api/session');showApp();load()}catch{showLogin()}})();
 </script></body></html>
