@@ -327,7 +327,19 @@ def main(
         except socket.timeout:
             break
         control = f"0x{res.body[0]:02X}" if res.body else "ACK"
-        print(f"PTCP channel response: {control} ({len(res.body)} bytes)", flush=True)
+        print(
+            f"PTCP channel response: {control} ({len(res.body)} bytes) "
+            f"body={res.body.hex()}",
+            flush=True,
+        )
+        if len(res.body) >= 4 and res.body[0] == 0x13:
+            # Newer devices send a 0x13 liveness/challenge packet while the
+            # authenticated channel is being established.  Acknowledge it with
+            # the paired 0x14 command and preserve its correlation payload.
+            reply = bytes([0x14]) + res.body[1:]
+            print(f"Replying to PTCP 0x13 with: {reply.hex()}", flush=True)
+            device_remote.request_ptcp(reply)
+            continue
         if res.body and res.body[0] == 0x1A:
             channel_response = res
             break
