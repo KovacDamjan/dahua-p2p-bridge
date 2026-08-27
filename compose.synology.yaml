@@ -1,0 +1,19 @@
+services:
+  bridge-manager:
+    image: dahua-p2p-bridge:latest
+    pull_policy: never
+    container_name: dahua-p2p-bridge
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Ljubljana}
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?Set APP_SECRET_KEY in project environment}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in project environment}
+      DATABASE_PATH: /app/data/bridge.db
+    ports:
+      - "8095:8095"
+      - "15540-15569:15540-15569"
+    volumes:
+      - ./data:/app/data
+    security_opt:
+      - no-new-privileges:true
+
