@@ -173,4 +173,3 @@ def test_camera(camera_id: int):
         if row is None:
             raise HTTPException(404, "Camera not found")
     raise HTTPException(501, "P2P adapter is not installed yet; configuration was saved safely")
-
