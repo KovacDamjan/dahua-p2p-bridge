@@ -97,6 +97,9 @@ pub async fn process_writer(
         let mut response = Vec::new();
         while let Some(data) = rx.recv().await {
             response.extend_from_slice(&data);
+            if http_response_complete(&response) {
+                break;
+            }
         }
         if !response.is_empty() {
             let rewritten = rewrite_http_response(&response, &config);
@@ -118,6 +121,23 @@ pub async fn process_writer(
             println!("Writer: Socket closed by peer.");
             break;
         }
+    }
+}
+
+fn http_response_complete(data: &[u8]) -> bool {
+    let Some(header_end) = data.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return false;
+    };
+    let headers = String::from_utf8_lossy(&data[..header_end]);
+    let content_length = headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("content-length")
+            .then(|| value.trim().parse::<usize>().ok())
+            .flatten()
+    });
+    match content_length {
+        Some(length) => data.len() >= header_end + 4 + length,
+        None => true,
     }
 }
 
@@ -263,5 +283,15 @@ mod tests {
         assert!(rewritten.contains("http://www.w3.org/2003/05/soap-envelope"));
         assert!(rewritten.contains("http://192.168.1.2:16540/onvif/device_service"));
         assert!(rewritten.contains("rtsp://192.168.1.2:15540/cam/realmonitor"));
+    }
+
+    #[test]
+    fn detects_complete_keep_alive_http_response() {
+        assert!(!http_response_complete(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n1234"
+        ));
+        assert!(http_response_complete(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n12345"
+        ));
     }
 }

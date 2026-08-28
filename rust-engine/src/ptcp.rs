@@ -401,8 +401,14 @@ impl PTCP for UdpSocket {
                 Ok(Err(error)) => {
                     restart_on_socket_error::<usize>(Err(error), "receive");
                 }
+                Err(_) if recovery_started.elapsed() < Duration::from_secs(60) => {
+                    eprintln!(
+                        "PTCP receive idle for 15 seconds; preserving the active session"
+                    );
+                    continue;
+                }
                 Err(_) => {
-                    eprintln!("PTCP receive timed out for 15 seconds; requesting full P2P reconnect");
+                    eprintln!("PTCP receive timed out for 60 seconds; requesting full P2P reconnect");
                     std::process::exit(75);
                 }
             }
