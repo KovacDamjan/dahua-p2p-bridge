@@ -14,6 +14,7 @@ TRANSIENT_FAILURE_MARKERS = (
     "timeout occurred",
     "did not return nat info",
     "did not return p2p channel",
+    "did not return authentication salt",
     "no easy4ip p2p server responded",
 )
 

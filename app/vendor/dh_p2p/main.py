@@ -9,6 +9,7 @@ import select
 import socket
 import subprocess
 import sys
+import time
 from urllib.parse import quote
 
 from .helpers import (
@@ -135,47 +136,59 @@ def main(
     p2psrv_port = int(p2psrv_port)
 
     res = None
+    info = {}
     last_device_probe_error = None
-    for attempt in range(1, 4):
+    device_info_attempts = 5
+    for attempt in range(1, device_info_attempts + 1):
         p2psrv_remote = UDP(p2psrv_server, p2psrv_port, debug)
         p2psrv_remote.settimeout(8)
         try:
             print(
                 f"Probing device via {p2psrv_server}:{p2psrv_port} "
-                f"(attempt {attempt}/3)",
+                f"(attempt {attempt}/{device_info_attempts})",
                 flush=True,
             )
             p2psrv_remote.request(f"/probe/device/{serial}")
             res = p2psrv_remote.request(f"/info/device/{serial}")
-            break
+            response_body = res.get("data", {}).get("body") or {}
+            info = get_device_info(response_body.get("Info"))
+            if dtype == 0 or info.get("randsalt"):
+                break
+
+            last_device_probe_error = ConnectionError(
+                "device returned an empty authentication salt"
+            )
+            print(
+                f"Device info attempt {attempt}/{device_info_attempts} returned "
+                "no authentication salt; retrying",
+                flush=True,
+            )
+            res = None
         except (OSError, socket.timeout) as error:
             last_device_probe_error = error
-            print(f"Device probe attempt {attempt}/3 failed: {error}", flush=True)
+            print(
+                f"Device probe attempt {attempt}/{device_info_attempts} failed: "
+                f"{error}",
+                flush=True,
+            )
         finally:
             p2psrv_remote.close()
+        if attempt < device_info_attempts:
+            time.sleep(1)
 
     if res is None:
         raise ConnectionError(
-            f"Device server {p2psrv_server}:{p2psrv_port} did not respond "
-            f"after 3 attempts: {last_device_probe_error}"
+            f"Device server {p2psrv_server}:{p2psrv_port} did not return "
+            f"authentication salt after {device_info_attempts} attempts: "
+            f"{last_device_probe_error}"
         )
-
-    # The salt is only needed to authenticate the channel setup, so a server that
-    # will not answer here must not take the whole handshake down with it.
-    info = {}
-
-    if res["code"] < 300:
-        response_body = res.get("data", {}).get("body") or {}
-        info = get_device_info(response_body.get("Info"))
-    else:
-        print("Could not read device info:", res["status"])
 
     randsalt = info.get("randsalt", "")
     rtsp_port = int(info.get("rtspport") or 554)
 
     if randsalt:
         print(f"Device info: {info}")
-    else:
+    elif dtype == 0:
         print("Device reported no salt, continuing without one.")
 
     device_remote = UDP(main_server, main_port, debug)
