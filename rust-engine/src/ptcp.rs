@@ -308,27 +308,42 @@ pub trait PTCP {
 #[async_trait]
 impl PTCP for UdpSocket {
     async fn ptcp_request(&self, packet: PTCPPacket) {
-        println!(">>> {}", self.peer_addr().unwrap());
+        let peer = restart_on_socket_error(self.peer_addr(), "peer lookup");
+        println!(">>> {}", peer);
         println!("{:?}", packet);
         packet.try_print_data();
         println!("---");
 
         let packet = packet.serialize();
-        self.send(&packet).await.unwrap();
+        restart_on_socket_error(self.send(&packet).await, "send");
     }
 
     async fn ptcp_read(&self) -> PTCPPacket {
-        println!("### {}", self.peer_addr().unwrap());
+        let peer = restart_on_socket_error(self.peer_addr(), "peer lookup");
+        println!("### {}", peer);
 
         let mut buf = [0u8; 4096];
-        let n = self.recv(&mut buf).await.unwrap();
+        let n = restart_on_socket_error(self.recv(&mut buf).await, "receive");
 
-        println!("<<< {}", self.peer_addr().unwrap());
+        println!("<<< {}", peer);
         let packet = PTCPPacket::parse(&buf[0..n]);
         println!("{:?}", packet);
         packet.try_print_data();
         println!("---");
 
         packet
+    }
+}
+
+fn restart_on_socket_error<T>(result: std::io::Result<T>, operation: &str) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!(
+                "PTCP {} failed: {}; requesting full P2P reconnect",
+                operation, error
+            );
+            std::process::exit(75);
+        }
     }
 }

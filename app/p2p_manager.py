@@ -93,7 +93,7 @@ class P2PManager:
                 if return_code == 75:
                     state.status = "connecting"
                     state.last_error = None
-                    state.logs.append("RTSP client disconnected; reconnecting P2P tunnel")
+                    state.logs.append("P2P engine requested reconnect; rebuilding tunnel")
                     restart = True
                 else:
                     state.status = "stopped" if return_code == 0 else "error"
