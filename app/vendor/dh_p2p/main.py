@@ -122,6 +122,7 @@ def main(
         print("Could not read device info:", res["status"])
 
     randsalt = info.get("randsalt", "")
+    rtsp_port = int(info.get("rtspport") or 554)
 
     if randsalt:
         print(f"Device info: {info}")
@@ -452,32 +453,40 @@ def main(
         print(f"Connection from {address}")
 
         realm_id = random.randint(0x00000000, 0xFFFFFFFF)
-        device_remote.request_ptcp(
+        bind_request = (
             b"\x11\x00\x00\x00"
             + realm_id.to_bytes(4, "big")
             + b"\x00\x00\x00\x00"
-            # port 554
-            + b"\x00\x00\x02\x2A"
-            + b"\x7f\x00\x00\x01",
+            + rtsp_port.to_bytes(4, "big")
+            + b"\x7f\x00\x00\x01"
         )
         bind_response = None
-        for _ in range(10):
-            try:
-                res = device_remote.read_ptcp(timeout=3)
-            except socket.timeout:
-                break
-            control = f"0x{res.body[0]:02X}" if res.body else "ACK"
+        for attempt in range(1, 4):
             print(
-                f"RTSP bind response: {control} ({len(res.body)} bytes) "
-                f"body={res.body.hex()}",
+                f"Requesting camera RTSP port {rtsp_port} "
+                f"(attempt {attempt}/3)",
                 flush=True,
             )
-            if res.body and res.body[0] == 0x13:
-                print("Acknowledging PTCP heartbeat during RTSP bind", flush=True)
-                device_remote.request_ptcp()
-                continue
-            if res.body and res.body[0] == 0x12:
-                bind_response = res
+            device_remote.request_ptcp(bind_request)
+            for _ in range(4):
+                try:
+                    res = device_remote.read_ptcp(timeout=3)
+                except socket.timeout:
+                    break
+                control = f"0x{res.body[0]:02X}" if res.body else "ACK"
+                print(
+                    f"RTSP bind response: {control} ({len(res.body)} bytes) "
+                    f"body={res.body.hex()}",
+                    flush=True,
+                )
+                if res.body and res.body[0] == 0x13:
+                    print("Acknowledging PTCP heartbeat during RTSP bind", flush=True)
+                    device_remote.request_ptcp()
+                    continue
+                if res.body and res.body[0] == 0x12:
+                    bind_response = res
+                    break
+            if bind_response is not None:
                 break
         if bind_response is None:
             print("Camera did not acknowledge RTSP port bind; closing client", flush=True)
