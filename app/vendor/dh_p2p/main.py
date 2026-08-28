@@ -574,27 +574,19 @@ def main(
         except BrokenPipeError:
             print("Broken pipe")
         finally:
-            print("Cleaning up connection")
-            device_remote.request_ptcp(
-                b"\x12\x00\x00\x00"
-                + realm_id.to_bytes(4, "big")
-                + b"\x00\x00\x00\x00"
-                + b"DISC"
-            )
-
-            res = device_remote.read_ptcp()
-
-            while len(res.body) == 0 or res.body[0] == 0x10:
-                if len(res.body) > 0:
-                    device_remote.request_ptcp()
-
-                res = device_remote.read_ptcp()
-
-            assert res.body[0] == 0x12
-            device_remote.request_ptcp()
-
+            print("Cleaning up connection and requesting tunnel restart", flush=True)
+            try:
+                device_remote.request_ptcp(
+                    b"\x12\x00\x00\x00"
+                    + realm_id.to_bytes(4, "big")
+                    + b"\x00\x00\x00\x00"
+                    + b"DISC"
+                )
+            except OSError:
+                pass
             socketclient.close()
-            print("Connection closed")
+            print("Connection closed; restarting P2P session", flush=True)
+            sys.exit(75)
 
 
 if __name__ == "__main__":

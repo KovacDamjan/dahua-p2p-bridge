@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 class WorkerState:
     process: subprocess.Popen
     port: int
+    camera: dict
+    password: str
     status: str = "connecting"
     last_error: str | None = None
     logs: list[str] = field(default_factory=list)
@@ -61,7 +63,12 @@ class P2PManager:
             text=True,
             bufsize=1,
         )
-        state = WorkerState(process=process, port=port)
+        state = WorkerState(
+            process=process,
+            port=port,
+            camera=dict(camera),
+            password=password,
+        )
         with self._lock:
             self._workers[camera_id] = state
         threading.Thread(target=self._read_output, args=(camera_id, state), daemon=True).start()
@@ -80,11 +87,24 @@ class P2PManager:
                     state.last_error = line
 
         return_code = state.process.wait()
+        restart = False
         with self._lock:
             if self._workers.get(camera_id) is state:
-                state.status = "stopped" if return_code == 0 else "error"
-                if return_code and not state.last_error:
+                if return_code == 75:
+                    state.status = "connecting"
+                    state.last_error = None
+                    state.logs.append("RTSP client disconnected; reconnecting P2P tunnel")
+                    restart = True
+                else:
+                    state.status = "stopped" if return_code == 0 else "error"
+                if return_code not in (0, 75) and not state.last_error:
                     state.last_error = f"P2P worker exited with code {return_code}"
+
+        if restart:
+            threading.Event().wait(1)
+            with self._lock:
+                if self._workers.get(camera_id) is state:
+                    self.start(state.camera, state.password)
 
     def stop(self, camera_id: int) -> None:
         with self._lock:
