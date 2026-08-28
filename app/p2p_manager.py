@@ -55,7 +55,7 @@ class WorkerState:
 
 
 class P2PManager:
-    """Owns independent RTSP and ONVIF upstream P2P sessions per camera."""
+    """Owns one shared upstream P2P session for RTSP and ONVIF per camera."""
 
     def __init__(self, first_port: int = 15540, max_cameras: int = 30):
         self.first_port = first_port
@@ -87,11 +87,15 @@ class P2PManager:
 
     def _start_service(self, camera_id: int, worker: WorkerState, service: str) -> None:
         bind_port = worker.port if service == "rtsp" else self.onvif_port_for(camera_id)
+        if service == "rtsp":
+            # Both local listeners live in one process and share the authenticated
+            # upstream PTCP session. Remove an alias left by the previous process.
+            worker.services.pop("onvif", None)
         env = os.environ.copy()
         env.update(
             P2P_USERNAME=worker.camera["username"],
             P2P_PASSWORD=worker.password,
-            P2P_IDLE_RECONNECT_SECONDS="0" if service == "onvif" else "60",
+            P2P_IDLE_RECONNECT_SECONDS="60",
             PYTHONUNBUFFERED="1",
         )
         command = [
@@ -101,13 +105,13 @@ class P2PManager:
             "--type",
             "1",
             "--service",
-            service,
+            "both" if service == "rtsp" else service,
             "--bind-port",
             str(bind_port),
             "--public-rtsp-port",
             str(worker.port),
             "--transport",
-            "relay" if service == "onvif" else "direct",
+            "direct",
             worker.camera["serial"],
         ]
         process = subprocess.Popen(
@@ -141,10 +145,10 @@ class P2PManager:
                     state.status = "online"
                     state.last_error = None
                     if state.service == "rtsp" and "onvif" not in worker.services:
+                        worker.services["onvif"] = state
                         worker.logs.append(
-                            "[ONVIF] RTSP session is ready; starting isolated ONVIF handshake"
+                            "[ONVIF] Sharing the authenticated RTSP P2P session"
                         )
-                        self._start_service(camera_id, worker, "onvif")
                 elif "Error:" in line or "Traceback" in line:
                     state.last_error = line
 
@@ -195,7 +199,7 @@ class P2PManager:
             worker = self._workers.pop(camera_id, None)
         if not worker:
             return
-        states = list(worker.services.values())
+        states = list({id(state): state for state in worker.services.values()}.values())
         for state in states:
             if state.process.poll() is None:
                 state.process.terminate()
