@@ -6,7 +6,7 @@ use std::{
 };
 use tokio::{
     net::{TcpListener, UdpSocket},
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, Semaphore},
     time::{timeout, Duration},
 };
 
@@ -26,8 +26,18 @@ async fn handle_client(
     dh_tx: mpsc::Sender<PTCPEvent>,
     channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
     conn_channels: Arc<Mutex<HashMap<u32, oneshot::Sender<bool>>>>,
+    onvif_slots: Arc<Semaphore>,
 ) {
     println!("Accepted {service} connection from {addr}");
+    let connection_permit = if service == "ONVIF/HTTP" {
+        println!("Queueing ONVIF/HTTP connection from {addr}");
+        match onvif_slots.acquire_owned().await {
+            Ok(permit) => Some(permit),
+            Err(_) => return,
+        }
+    } else {
+        None
+    };
     let realm_id = rand::random::<u32>();
     let (tx, rx) = mpsc::channel::<Vec<u8>>(128);
     let (conn_tx, conn_rx) = oneshot::channel::<bool>();
@@ -60,6 +70,7 @@ async fn handle_client(
         realm_id,
         dh_tx,
         channels,
+        connection_permit,
     ));
     tokio::spawn(process_writer(writer, rx));
 }
@@ -118,6 +129,7 @@ async fn main() {
     let session = Arc::new(Mutex::new(session));
     let channels = Arc::new(Mutex::new(HashMap::<u32, mpsc::Sender<Vec<u8>>>::new()));
     let conn_channels = Arc::new(Mutex::new(HashMap::<u32, oneshot::Sender<bool>>::new()));
+    let onvif_slots = Arc::new(Semaphore::new(1));
 
     let socket = Arc::new(socket);
     tokio::spawn(dh_writer(
@@ -170,6 +182,7 @@ async fn main() {
             dh_tx.clone(),
             channels.clone(),
             conn_channels.clone(),
+            onvif_slots.clone(),
         ));
     }
 }

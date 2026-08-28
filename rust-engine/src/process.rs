@@ -5,7 +5,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UdpSocket,
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, OwnedSemaphorePermit},
 };
 
 use crate::ptcp::{PTCPBody, PTCPEvent, PTCPPayload, PTCPSession, PTCP};
@@ -36,6 +36,7 @@ pub async fn process_reader(
     realm_id: u32,
     dh_tx: mpsc::Sender<PTCPEvent>,
     channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
+    _connection_permit: Option<OwnedSemaphorePermit>,
 ) {
     let mut buf = [0u8; 4096];
 
