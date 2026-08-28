@@ -431,6 +431,10 @@ def main(
 
     print("Ready to connect", flush=True)
     print("Test with: rtsp://127.0.0.1/cam/realmonitor?channel=1&subtype=0")
+    receive_buffer = int(os.getenv("P2P_UDP_RECEIVE_BUFFER", str(4 * 1024 * 1024)))
+    device_remote.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, receive_buffer)
+    actual_receive_buffer = device_remote.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    print(f"PTCP UDP receive buffer: {actual_receive_buffer} bytes", flush=True)
     device_remote.connect((device_server, device_port))
     engine_path = os.getenv("P2P_RUST_ENGINE", "/usr/local/bin/dh-p2p-engine")
     engine_command = [

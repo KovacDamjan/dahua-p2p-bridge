@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::cmp;
+use std::{cmp, collections::BTreeMap, sync::OnceLock};
 use tokio::net::UdpSocket;
 use tokio::time::{sleep, timeout, Duration, Instant};
 
@@ -237,6 +237,7 @@ pub struct PTCPSession {
     count: u32,
     id: u32,
     rmid: u32,
+    pending: BTreeMap<u32, PTCPPacket>,
 }
 
 impl PTCPSession {
@@ -247,6 +248,7 @@ impl PTCPSession {
             count: 0,
             id: 0,
             rmid: 0,
+            pending: BTreeMap::new(),
         }
     }
 
@@ -257,6 +259,7 @@ impl PTCPSession {
             count,
             id,
             rmid,
+            pending: BTreeMap::new(),
         }
     }
 
@@ -292,34 +295,48 @@ impl PTCPSession {
         }
     }
 
-    pub fn recv(&mut self, packet: PTCPPacket) -> (PTCPPacket, bool) {
+    pub fn recv(&mut self, packet: PTCPPacket) -> Vec<PTCPPacket> {
         let packet_start = packet.sent;
         let packet_end = packet_start.saturating_add(packet.body.len() as u32);
-        let deliver = packet_end > self.recv;
-
-        if deliver {
-            if packet_start > self.recv {
-                eprintln!(
-                    "PTCP receive gap: expected byte {}, got {}; skipping {} missing bytes",
-                    self.recv,
-                    packet_start,
-                    packet_start - self.recv
-                );
-            }
-            // PTCP uses cumulative byte offsets. Advancing from packet.sent is
-            // essential after UDP loss; merely adding the payload length leaves
-            // every later ACK permanently behind the camera's send position.
-            self.recv = packet_end;
-        } else {
-            eprintln!(
-                "PTCP duplicate/old packet: bytes {}..{} already acknowledged through {}",
-                packet_start, packet_end, self.recv
-            );
-        }
         self.rmid = packet.lmid;
 
-        (packet, deliver)
+        if packet.body.len() == 0 {
+            return Vec::new();
+        }
+        if packet_end <= self.recv || self.pending.contains_key(&packet_start) {
+            if packet_debug_enabled() {
+                eprintln!(
+                    "PTCP duplicate/old packet: bytes {}..{} already received through {}",
+                    packet_start, packet_end, self.recv
+                );
+            }
+            return Vec::new();
+        }
+
+        if packet_start > self.recv && self.pending.is_empty() {
+            eprintln!(
+                "PTCP receive gap: expected byte {}, got {}; buffering out-of-order packets",
+                self.recv, packet_start
+            );
+        }
+        self.pending.insert(packet_start, packet);
+
+        let mut ready = Vec::new();
+        while let Some(packet) = self.pending.remove(&self.recv) {
+            self.recv = self.recv.saturating_add(packet.body.len() as u32);
+            ready.push(packet);
+        }
+        ready
     }
+}
+
+fn packet_debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("P2P_PACKET_DEBUG")
+            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false)
+    })
 }
 
 #[async_trait]
@@ -332,10 +349,14 @@ pub trait PTCP {
 impl PTCP for UdpSocket {
     async fn ptcp_request(&self, packet: PTCPPacket) {
         let peer = restart_on_socket_error(self.peer_addr(), "peer lookup");
-        println!(">>> {}", peer);
-        println!("{:?}", packet);
-        packet.try_print_data();
-        println!("---");
+        let log_packet = packet_debug_enabled()
+            || !matches!(&packet.body, PTCPBody::Payload(_) | PTCPBody::Empty);
+        if log_packet {
+            println!(">>> {}", peer);
+            println!("{:?}", packet);
+            packet.try_print_data();
+            println!("---");
+        }
 
         let packet = packet.serialize();
         for attempt in 1..=4 {
@@ -359,7 +380,9 @@ impl PTCP for UdpSocket {
 
     async fn ptcp_read(&self) -> PTCPPacket {
         let peer = restart_on_socket_error(self.peer_addr(), "peer lookup");
-        println!("### {}", peer);
+        if packet_debug_enabled() {
+            println!("### {}", peer);
+        }
 
         let mut buf = [0u8; 4096];
         let recovery_started = Instant::now();
@@ -385,11 +408,15 @@ impl PTCP for UdpSocket {
             }
         };
 
-        println!("<<< {}", peer);
         let packet = PTCPPacket::parse(&buf[0..n]);
-        println!("{:?}", packet);
-        packet.try_print_data();
-        println!("---");
+        let log_packet = packet_debug_enabled()
+            || !matches!(&packet.body, PTCPBody::Payload(_) | PTCPBody::Empty);
+        if log_packet {
+            println!("<<< {}", peer);
+            println!("{:?}", packet);
+            packet.try_print_data();
+            println!("---");
+        }
 
         packet
     }
@@ -429,18 +456,19 @@ mod tests {
     #[test]
     fn cumulative_receive_offset_recovers_after_udp_gap() {
         let mut session = PTCPSession::from_state(0, 100, 0, 0, 0);
-        let (_, deliver) = session.recv(payload_packet(200, 1280));
+        let ready = session.recv(payload_packet(200, 1280));
 
-        assert!(deliver);
-        assert_eq!(session.recv, 1492);
+        assert!(ready.is_empty());
+        assert_eq!(session.recv, 100);
+        assert_eq!(session.pending.len(), 1);
     }
 
     #[test]
     fn duplicate_payload_is_not_delivered_twice() {
         let mut session = PTCPSession::from_state(0, 1492, 0, 0, 0);
-        let (_, deliver) = session.recv(payload_packet(200, 1280));
+        let ready = session.recv(payload_packet(200, 1280));
 
-        assert!(!deliver);
+        assert!(ready.is_empty());
         assert_eq!(session.recv, 1492);
     }
 }

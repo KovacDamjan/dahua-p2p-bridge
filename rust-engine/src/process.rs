@@ -116,22 +116,16 @@ pub async fn dh_reader(
 ) {
     loop {
         let packet = socket.ptcp_read().await;
-        let (packet, deliver) = session.lock().unwrap().recv(packet);
+        let should_ack = !matches!(&packet.body, PTCPBody::Empty);
+        let packets = session.lock().unwrap().recv(packet);
 
-        if let PTCPBody::Empty = packet.body {
-            continue;
+        if should_ack {
+            let p = session.lock().unwrap().send(PTCPBody::Empty);
+            socket.ptcp_request(p).await;
         }
 
-        let p = session.lock().unwrap().send(PTCPBody::Empty);
-        socket.ptcp_request(p).await;
-
-        // A repeated UDP datagram must be acknowledged again, but its bytes
-        // must not be written into the RTSP TCP stream a second time.
-        if !deliver {
-            continue;
-        }
-
-        match packet.body {
+        for packet in packets {
+            match packet.body {
             PTCPBody::Status(realm, status) => {
                 if status == "CONN" {
                     if let Some(sender) = conn_channels.lock().unwrap().remove(&realm) {
@@ -148,6 +142,7 @@ pub async fn dh_reader(
                 }
             }
             _ => {}
+            }
         }
     }
 }
