@@ -178,10 +178,6 @@ def main(
     else:
         print("Device reported no salt, continuing without one.")
 
-    res = main_remote.request("/online/relay")
-    relay_server, relay_port = res["data"]["body"]["Address"].split(":")
-    relay_port = int(relay_port)
-
     device_remote = UDP(main_server, main_port, debug)
 
     laddr = f"127.0.0.1:{device_remote.lport}"
@@ -205,20 +201,6 @@ def main(
         f"/device/{serial}/p2p-channel",
         p2p_channel_body,
         should_read=False,
-    )
-
-    main_remote.rhost = relay_server
-    main_remote.rport = relay_port
-    res = main_remote.request("/relay/agent")
-    token = res["data"]["body"]["Token"]
-    agent_server, agent_port = res["data"]["body"]["Agent"].split(":")
-    agent_port = int(agent_port)
-
-    main_remote.rhost = agent_server
-    main_remote.rport = agent_port
-    res = main_remote.request(
-        f"/relay/start/{token}",
-        "<body><Client>:0</Client></body>",
     )
 
     res = None
@@ -271,6 +253,30 @@ def main(
     device_port = int(device_port)
     device_remote.rhost = device_server
     device_remote.rport = device_port
+
+    # Relay agent sessions are short lived (typically Time=30).  The camera's
+    # P2P NAT response can take more than 30 seconds when it only succeeds on a
+    # later retry, so acquire and start the relay agent only after NAT discovery
+    # has completed.  Otherwise the SID expires before /relay-channel is sent.
+    main_remote.rhost = main_server
+    main_remote.rport = main_port
+    res = main_remote.request("/online/relay")
+    relay_server, relay_port = res["data"]["body"]["Address"].split(":")
+    relay_port = int(relay_port)
+
+    main_remote.rhost = relay_server
+    main_remote.rport = relay_port
+    res = main_remote.request("/relay/agent")
+    token = res["data"]["body"]["Token"]
+    agent_server, agent_port = res["data"]["body"]["Agent"].split(":")
+    agent_port = int(agent_port)
+
+    main_remote.rhost = agent_server
+    main_remote.rport = agent_port
+    main_remote.request(
+        f"/relay/start/{token}",
+        "<body><Client>:0</Client></body>",
+    )
 
     main_remote.rhost = main_server
     main_remote.rport = main_port
