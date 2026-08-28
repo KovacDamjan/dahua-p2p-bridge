@@ -1,3 +1,9 @@
+FROM rust:1.85-bookworm AS rust-builder
+
+WORKDIR /build
+COPY rust-engine ./
+RUN cargo build --release
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -11,6 +17,7 @@ RUN apt-get update \
     && pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY --from=rust-builder /build/target/release/dh-p2p /usr/local/bin/dh-p2p-engine
 
 RUN useradd --system --uid 10001 bridge \
     && mkdir -p /app/data \

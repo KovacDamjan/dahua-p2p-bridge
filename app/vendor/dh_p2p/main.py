@@ -431,6 +431,26 @@ def main(
 
     print("Ready to connect", flush=True)
     print("Test with: rtsp://127.0.0.1/cam/realmonitor?channel=1&subtype=0")
+    device_remote.connect((device_server, device_port))
+    engine_path = os.getenv("P2P_RUST_ENGINE", "/usr/local/bin/dh-p2p-engine")
+    engine_command = [
+        engine_path,
+        "--udp-fd", str(device_remote.fileno()),
+        "--listener-fd", str(socketserver.fileno()),
+        "--remote-port", str(rtsp_port),
+        "--session-sent", str(device_remote.ptcp_sent),
+        "--session-recv", str(device_remote.ptcp_recv),
+        "--session-count", str(device_remote.ptcp_count),
+        "--session-id", str(device_remote.ptcp_id),
+        "--session-rmid", str(device_remote.rmid),
+    ]
+    print("Handing authenticated PTCP session to Rust engine", flush=True)
+    engine = subprocess.Popen(
+        engine_command,
+        pass_fds=(device_remote.fileno(), socketserver.fileno()),
+    )
+    sys.exit(engine.wait())
+
     while True:
         ready, _, _ = select.select([socketserver], [], [], 0.1)
 
