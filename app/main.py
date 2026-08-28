@@ -26,7 +26,7 @@ SESSION_COOKIE = "bridge_session"
 SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(30 * 24 * 60 * 60)))
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
-app = FastAPI(title="Dahua P2P Bridge", version="0.2.5")
+app = FastAPI(title="Dahua P2P Bridge", version="0.3.0")
 security = HTTPBasic(auto_error=False)
 p2p_manager = P2PManager()
 
@@ -176,6 +176,8 @@ def public_camera(row: sqlite3.Row) -> dict:
         f"/cam/realmonitor?channel={item['channel'] + 1}"
         f"&subtype={0 if item['stream'] == 'main' else 1}"
     )
+    item["onvif_port"] = p2p_manager.onvif_port_for(item["id"])
+    item["onvif_service"] = f"http://NAS-IP:{item['onvif_port']}/onvif/device_service"
     return item
 
 

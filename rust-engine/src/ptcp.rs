@@ -5,7 +5,7 @@ use tokio::time::{sleep, timeout, Duration, Instant};
 
 pub enum PTCPEvent {
     Heartbeat,
-    Connect(u32),
+    Connect(u32, u32),
     Disconnect(u32),
     Data(u32, Vec<u8>),
 }

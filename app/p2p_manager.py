@@ -33,6 +33,9 @@ class P2PManager:
             raise ValueError(f"camera id must be between 1 and {self.max_cameras}")
         return self.first_port + camera_id - 1
 
+    def onvif_port_for(self, camera_id: int) -> int:
+        return self.port_for(camera_id) + 1000
+
     def start(self, camera: dict, password: str) -> WorkerState:
         camera_id = int(camera["id"])
         self.stop(camera_id)

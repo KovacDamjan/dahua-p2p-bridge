@@ -25,6 +25,8 @@ struct Cli {
     udp_fd: i32,
     #[arg(long)]
     listener_fd: i32,
+    #[arg(long)]
+    http_listener_fd: i32,
     #[arg(long, default_value_t = 554)]
     remote_port: u32,
     #[arg(long)]
@@ -53,6 +55,12 @@ async fn main() {
         .expect("set listener nonblocking");
     let listener = TcpListener::from_std(listener_std).expect("adopt TCP listener");
 
+    let http_listener_std = unsafe { std::net::TcpListener::from_raw_fd(args.http_listener_fd) };
+    http_listener_std
+        .set_nonblocking(true)
+        .expect("set HTTP listener nonblocking");
+    let http_listener = TcpListener::from_std(http_listener_std).expect("adopt HTTP listener");
+
     let session = PTCPSession::from_state(
         args.session_sent,
         args.session_recv,
@@ -70,7 +78,6 @@ async fn main() {
         session.clone(),
         socket.clone(),
         dh_rx,
-        args.remote_port,
     ));
     tokio::spawn(dh_reader(
         session.clone(),
@@ -93,14 +100,23 @@ async fn main() {
     println!("Ready to connect!");
 
     loop {
-        let (client, addr) = match listener.accept().await {
-            Ok(value) => value,
-            Err(error) => {
-                eprintln!("TCP accept failed: {error}");
-                continue;
-            }
+        let (client, addr, remote_port, service) = tokio::select! {
+            result = listener.accept() => match result {
+                Ok((client, addr)) => (client, addr, args.remote_port, "RTSP"),
+                Err(error) => {
+                    eprintln!("RTSP accept failed: {error}");
+                    continue;
+                }
+            },
+            result = http_listener.accept() => match result {
+                Ok((client, addr)) => (client, addr, 80, "ONVIF/HTTP"),
+                Err(error) => {
+                    eprintln!("ONVIF/HTTP accept failed: {error}");
+                    continue;
+                }
+            },
         };
-        println!("Accepted connection from {addr}");
+        println!("Accepted {service} connection from {addr}");
 
         let realm_id = rand::random::<u32>();
         let (tx, rx) = mpsc::channel::<Vec<u8>>(128);
@@ -108,14 +124,18 @@ async fn main() {
         channels.lock().unwrap().insert(realm_id, tx);
         conn_channels.lock().unwrap().insert(realm_id, conn_tx);
 
-        if dh_tx.send(PTCPEvent::Connect(realm_id)).await.is_err() {
+        if dh_tx
+            .send(PTCPEvent::Connect(realm_id, remote_port))
+            .await
+            .is_err()
+        {
             eprintln!("PTCP writer unavailable");
             continue;
         }
         match timeout(Duration::from_secs(12), conn_rx).await {
-            Ok(Ok(true)) => println!("PTCP realm {realm_id:08x} connected"),
+            Ok(Ok(true)) => println!("PTCP {service} realm {realm_id:08x} connected"),
             _ => {
-                println!("PTCP realm {realm_id:08x} bind timed out");
+                println!("PTCP {service} realm {realm_id:08x} bind timed out");
                 channels.lock().unwrap().remove(&realm_id);
                 conn_channels.lock().unwrap().remove(&realm_id);
                 continue;

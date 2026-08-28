@@ -38,6 +38,12 @@ def main(
     socketserver.bind(("0.0.0.0", bind_port))
     socketserver.listen(5)
     print(f"Listening on port {bind_port}", flush=True)
+    onvif_socketserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    onvif_socketserver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    onvif_bind_port = bind_port + 1000
+    onvif_socketserver.bind(("0.0.0.0", onvif_bind_port))
+    onvif_socketserver.listen(5)
+    print(f"ONVIF/HTTP listening on port {onvif_bind_port}", flush=True)
 
     if debug:
         subprocess.Popen(
@@ -441,6 +447,7 @@ def main(
         engine_path,
         "--udp-fd", str(device_remote.fileno()),
         "--listener-fd", str(socketserver.fileno()),
+        "--http-listener-fd", str(onvif_socketserver.fileno()),
         "--remote-port", str(rtsp_port),
         "--session-sent", str(device_remote.ptcp_sent),
         "--session-recv", str(device_remote.ptcp_recv),
@@ -451,7 +458,7 @@ def main(
     print("Handing authenticated PTCP session to Rust engine", flush=True)
     engine = subprocess.Popen(
         engine_command,
-        pass_fds=(device_remote.fileno(), socketserver.fileno()),
+        pass_fds=(device_remote.fileno(), socketserver.fileno(), onvif_socketserver.fileno()),
     )
     sys.exit(engine.wait())
 
