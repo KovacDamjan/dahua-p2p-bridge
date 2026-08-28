@@ -4,6 +4,9 @@ import sys
 import threading
 from dataclasses import dataclass, field
 
+LOG_HISTORY_LIMIT = max(100, int(os.getenv("P2P_LOG_HISTORY", "1000")))
+LOG_STATUS_LIMIT = max(20, int(os.getenv("P2P_LOG_STATUS_LINES", "500")))
+
 
 @dataclass
 class WorkerState:
@@ -80,7 +83,7 @@ class P2PManager:
             line = raw_line.rstrip()
             with self._lock:
                 state.logs.append(line)
-                state.logs[:] = state.logs[-100:]
+                state.logs[:] = state.logs[-LOG_HISTORY_LIMIT:]
                 if "Ready to connect" in line:
                     state.status = "online"
                 elif "Error:" in line or "Traceback" in line:
@@ -94,6 +97,7 @@ class P2PManager:
                     state.status = "connecting"
                     state.last_error = None
                     state.logs.append("P2P engine requested reconnect; rebuilding tunnel")
+                    state.logs[:] = state.logs[-LOG_HISTORY_LIMIT:]
                     restart = True
                 else:
                     state.status = "stopped" if return_code == 0 else "error"
@@ -104,7 +108,11 @@ class P2PManager:
             threading.Event().wait(1)
             with self._lock:
                 if self._workers.get(camera_id) is state:
-                    self.start(state.camera, state.password)
+                    previous_logs = list(state.logs)
+                    new_state = self.start(state.camera, state.password)
+                    with self._lock:
+                        new_state.logs[:0] = previous_logs[-LOG_HISTORY_LIMIT:]
+                        new_state.logs[:] = new_state.logs[-LOG_HISTORY_LIMIT:]
 
     def stop(self, camera_id: int) -> None:
         with self._lock:
@@ -125,7 +133,7 @@ class P2PManager:
                 "status": state.status,
                 "last_error": state.last_error,
                 "port": state.port,
-                "logs": state.logs[-20:],
+                "logs": state.logs[-LOG_STATUS_LIMIT:],
             }
 
     def stop_all(self) -> None:
