@@ -41,43 +41,37 @@ async fn handle_client(
         None
     };
     let persistent_onvif = service == "ONVIF/HTTP";
-    let existing_onvif_realm = if persistent_onvif {
-        *onvif_realm.lock().unwrap()
-    } else {
-        None
-    };
-    let realm_id = existing_onvif_realm.unwrap_or_else(rand::random::<u32>);
+    // The camera closes an ONVIF realm after each HTTP response. Keep the
+    // authenticated P2P relay alive, but bind a fresh realm per request so a
+    // following Synology request can never race with the delayed DISC packet.
+    let realm_id = rand::random::<u32>();
     let (tx, rx) = mpsc::channel::<Vec<u8>>(128);
     channels.lock().unwrap().insert(realm_id, tx);
 
-    if existing_onvif_realm.is_some() {
-        println!("Reusing PTCP ONVIF/HTTP realm {realm_id:08x}");
-    } else {
-        let (conn_tx, conn_rx) = oneshot::channel::<bool>();
-        conn_channels.lock().unwrap().insert(realm_id, conn_tx);
-        if dh_tx
-            .send(PTCPEvent::Connect(realm_id, remote_port))
-            .await
-            .is_err()
-        {
-            eprintln!("PTCP writer unavailable");
+    let (conn_tx, conn_rx) = oneshot::channel::<bool>();
+    conn_channels.lock().unwrap().insert(realm_id, conn_tx);
+    if dh_tx
+        .send(PTCPEvent::Connect(realm_id, remote_port))
+        .await
+        .is_err()
+    {
+        eprintln!("PTCP writer unavailable");
+        channels.lock().unwrap().remove(&realm_id);
+        conn_channels.lock().unwrap().remove(&realm_id);
+        return;
+    }
+    match timeout(Duration::from_secs(12), conn_rx).await {
+        Ok(Ok(true)) => {
+            println!("PTCP {service} realm {realm_id:08x} connected");
+            if persistent_onvif {
+                *onvif_realm.lock().unwrap() = Some(realm_id);
+            }
+        }
+        _ => {
+            println!("PTCP {service} realm {realm_id:08x} bind timed out");
             channels.lock().unwrap().remove(&realm_id);
             conn_channels.lock().unwrap().remove(&realm_id);
             return;
-        }
-        match timeout(Duration::from_secs(12), conn_rx).await {
-            Ok(Ok(true)) => {
-                println!("PTCP {service} realm {realm_id:08x} connected");
-                if persistent_onvif {
-                    *onvif_realm.lock().unwrap() = Some(realm_id);
-                }
-            }
-            _ => {
-                println!("PTCP {service} realm {realm_id:08x} bind timed out");
-                channels.lock().unwrap().remove(&realm_id);
-                conn_channels.lock().unwrap().remove(&realm_id);
-                return;
-            }
         }
     }
 
