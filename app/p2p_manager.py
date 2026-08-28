@@ -15,6 +15,7 @@ TRANSIENT_FAILURE_MARKERS = (
     "did not return nat info",
     "did not return p2p channel",
     "did not return authentication salt",
+    "devpwd_invalidsalt",
     "no easy4ip p2p server responded",
 )
 
