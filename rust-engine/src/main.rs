@@ -11,7 +11,7 @@ use tokio::{
 };
 
 use crate::{
-    process::{dh_reader, dh_writer, process_reader, process_writer},
+    process::{dh_reader, dh_writer, process_reader, process_writer, HttpRewriteConfig},
     ptcp::{PTCPEvent, PTCPSession},
 };
 
@@ -27,6 +27,7 @@ async fn handle_client(
     channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
     conn_channels: Arc<Mutex<HashMap<u32, oneshot::Sender<bool>>>>,
     onvif_slots: Arc<Semaphore>,
+    rtsp_local_port: u16,
 ) {
     println!("Accepted {service} connection from {addr}");
     let connection_permit = if service == "ONVIF/HTTP" {
@@ -64,6 +65,16 @@ async fn handle_client(
         }
     }
 
+    let local_address = client.local_addr().ok();
+    let http_rewrite = if service == "ONVIF/HTTP" {
+        local_address.map(|address| HttpRewriteConfig {
+            host: address.ip().to_string(),
+            onvif_port: address.port(),
+            rtsp_port: rtsp_local_port,
+        })
+    } else {
+        None
+    };
     let (reader, writer) = client.into_split();
     tokio::spawn(process_reader(
         reader,
@@ -72,7 +83,7 @@ async fn handle_client(
         channels,
         connection_permit,
     ));
-    tokio::spawn(process_writer(writer, rx));
+    tokio::spawn(process_writer(writer, rx, http_rewrite));
 }
 
 #[derive(Parser)]
@@ -111,6 +122,7 @@ async fn main() {
         .set_nonblocking(true)
         .expect("set listener nonblocking");
     let listener = TcpListener::from_std(listener_std).expect("adopt TCP listener");
+    let rtsp_local_port = listener.local_addr().expect("RTSP listener address").port();
 
     let http_listener_std = unsafe { std::net::TcpListener::from_raw_fd(args.http_listener_fd) };
     http_listener_std
@@ -183,6 +195,7 @@ async fn main() {
             channels.clone(),
             conn_channels.clone(),
             onvif_slots.clone(),
+            rtsp_local_port,
         ));
     }
 }
