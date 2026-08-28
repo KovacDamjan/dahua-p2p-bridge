@@ -36,8 +36,25 @@ fn replace_url_authorities(data: &[u8], config: &HttpRewriteConfig) -> Vec<u8> {
                 .position(|byte| matches!(*byte, b'/' | b' ' | b'\r' | b'\n' | b'"' | b'\'' | b'<' | b'>'))
                 .map(|offset| start + offset)
                 .unwrap_or(output.len());
-            output.splice(start..end, authority.as_bytes().iter().copied());
-            search_from = start + authority.len();
+            let original_authority = &output[start..end];
+            let original_host = original_authority
+                .rsplit(|byte| *byte == b'@')
+                .next()
+                .unwrap_or(original_authority)
+                .split(|byte| *byte == b':')
+                .next()
+                .unwrap_or(original_authority);
+            let ipv4_literal = original_host.iter().all(|byte| byte.is_ascii_digit() || *byte == b'.')
+                && original_host.iter().filter(|byte| **byte == b'.').count() == 3;
+            let localhost = original_host.eq_ignore_ascii_case(b"localhost");
+
+            if ipv4_literal || localhost {
+                output.splice(start..end, authority.as_bytes().iter().copied());
+                search_from = start + authority.len();
+            } else {
+                // Preserve XML namespaces such as www.w3.org and www.onvif.org.
+                search_from = end;
+            }
         }
     }
     output
@@ -226,5 +243,25 @@ pub async fn dh_reader(
             _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_camera_addresses_but_preserves_xml_namespaces() {
+        let config = HttpRewriteConfig {
+            host: "192.168.1.2".to_string(),
+            onvif_port: 16540,
+            rtsp_port: 15540,
+        };
+        let xml = br#"<Envelope xmlns="http://www.w3.org/2003/05/soap-envelope"><XAddr>http://10.0.0.25/onvif/device_service</XAddr><Uri>rtsp://10.0.0.25:554/cam/realmonitor</Uri></Envelope>"#;
+        let rewritten = String::from_utf8(replace_url_authorities(xml, &config)).unwrap();
+
+        assert!(rewritten.contains("http://www.w3.org/2003/05/soap-envelope"));
+        assert!(rewritten.contains("http://192.168.1.2:16540/onvif/device_service"));
+        assert!(rewritten.contains("rtsp://192.168.1.2:15540/cam/realmonitor"));
     }
 }
