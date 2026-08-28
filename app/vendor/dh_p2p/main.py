@@ -201,16 +201,36 @@ def main(
     if dtype > 0:
         auth = get_auth(username, key, nonce, randsalt)
 
-    res = main_remote.request(
-        f"/device/{serial}/relay-channel",
-        f"<body>{auth}<agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
-        should_read=False,
-    )
+    relay_nat_response = None
+    last_relay_error = None
+    for attempt in range(1, 4):
+        if dtype > 0:
+            auth = get_auth(username, key, nonce, randsalt)
+        main_remote.rhost = main_server
+        main_remote.rport = main_port
+        print(f"Requesting relay channel (attempt {attempt}/3)", flush=True)
+        main_remote.request(
+            f"/device/{serial}/relay-channel",
+            f"<body>{auth}<agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
+            should_read=False,
+        )
+        main_remote.rhost = agent_server
+        main_remote.rport = agent_port
+        main_remote.settimeout(10)
+        try:
+            relay_nat_response = main_remote.read()
+            break
+        except (OSError, socket.timeout) as error:
+            last_relay_error = error
+            print(f"Relay channel attempt {attempt}/3 failed: {error}", flush=True)
+        finally:
+            main_remote.settimeout(None)
 
-    main_remote.rhost = agent_server
-    main_remote.rport = agent_port
-    # TODO check timeout
-    res = main_remote.read()
+    if relay_nat_response is None:
+        raise ConnectionError(
+            f"Agent server {agent_server}:{agent_port} did not return NAT info "
+            f"after 3 attempts: {last_relay_error}"
+        )
 
     main_remote.request_ptcp(b"\x00\x03\x01\x00")
     res = main_remote.read_ptcp()
