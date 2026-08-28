@@ -115,7 +115,12 @@ def main(
         try:
             print(f"Probing P2P server {candidate}:{main_port}", flush=True)
             res = probe.request("/probe/p2psrv")
-            probe.settimeout(None)
+            # Keep a finite timeout for every Easy4IP control request.  The
+            # initial probe can succeed while the following /online request is
+            # silently dropped; without this the worker remains "connecting"
+            # forever and the manager never gets a chance to rebuild the P2P
+            # session.
+            probe.settimeout(12)
             main_remote = probe
             main_server = candidate
             print(f"Selected P2P server {candidate}:{main_port}", flush=True)
