@@ -262,12 +262,24 @@ def main(
 
         sys.exit(1)
 
-    device_laddr = res["data"]["body"]["LocalAddr"]
-    if dtype > 0:
-        nonce = res["data"]["body"]["Nonce"]
+    channel_info = res["data"]["body"]
+    device_laddr = channel_info["LocalAddr"]
+    encrypted_address = str(channel_info.get("IpEncrptV2", "")).lower() == "true"
+    if dtype > 0 and encrypted_address:
+        response_nonce = channel_info.get("Nonce")
+        if response_nonce is None:
+            raise ConnectionError(
+                "Encrypted P2P channel response did not include Nonce"
+            )
+        nonce = response_nonce
         device_laddr = get_dec(key, nonce, device_laddr)
+    elif dtype > 0:
+        # Some firmware returns IpEncrpt=false and an already-plain LocalAddr.
+        # Such a response legitimately has no Nonce; keep the nonce generated
+        # for DevAuth and do not attempt to decrypt the address.
+        print("P2P channel returned an unencrypted LocalAddr", flush=True)
 
-    device_server, device_port = res["data"]["body"]["PubAddr"].split(":")
+    device_server, device_port = channel_info["PubAddr"].split(":")
     device_port = int(device_port)
     device_remote.rhost = device_server
     device_remote.rport = device_port
