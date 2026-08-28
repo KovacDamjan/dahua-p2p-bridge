@@ -460,10 +460,35 @@ def main(
             + b"\x00\x00\x02\x2A"
             + b"\x7f\x00\x00\x01",
         )
-        res = device_remote.read_ptcp()
-        if len(res.body) == 0:
-            res = device_remote.read_ptcp()
-        assert res.body[0] == 0x12
+        bind_response = None
+        for _ in range(10):
+            try:
+                res = device_remote.read_ptcp(timeout=3)
+            except socket.timeout:
+                break
+            control = f"0x{res.body[0]:02X}" if res.body else "ACK"
+            print(
+                f"RTSP bind response: {control} ({len(res.body)} bytes) "
+                f"body={res.body.hex()}",
+                flush=True,
+            )
+            if res.body and res.body[0] == 0x13:
+                print("Acknowledging PTCP heartbeat during RTSP bind", flush=True)
+                device_remote.request_ptcp()
+                continue
+            if res.body and res.body[0] == 0x12:
+                bind_response = res
+                break
+        if bind_response is None:
+            print("Camera did not acknowledge RTSP port bind; closing client", flush=True)
+            socketclient.close()
+            continue
+        bind_status = bind_response.body[12:]
+        print(f"RTSP bind status: {bind_status!r}", flush=True)
+        if bind_status == b"DISC":
+            print("Camera rejected RTSP port bind", flush=True)
+            socketclient.close()
+            continue
 
         try:
             while True:
