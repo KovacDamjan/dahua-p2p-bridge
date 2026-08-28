@@ -530,6 +530,26 @@ def main(
                         flush=True,
                     )
 
+                    if b"Content-Type: application/sdp" in body.payload:
+                        headers, separator, sdp = body.payload.partition(b"\r\n\r\n")
+                        declared_length = None
+                        for header in headers.split(b"\r\n"):
+                            if header.lower().startswith(b"content-length:"):
+                                try:
+                                    declared_length = int(header.split(b":", 1)[1].strip())
+                                except ValueError:
+                                    pass
+                        controls = [
+                            line.decode("utf-8", "replace")
+                            for line in sdp.split(b"\r\n")
+                            if line.startswith((b"m=", b"a=control:", b"a=rtpmap:"))
+                        ]
+                        print(
+                            f"SDP body: received={len(sdp)} "
+                            f"declared={declared_length} controls={controls}",
+                            flush=True,
+                        )
+
                     if debug:
                         print()
                         print(body)
@@ -538,7 +558,7 @@ def main(
                         print(body.payload)
                         print()
 
-                    socketclient.send(body.payload)
+                    socketclient.sendall(body.payload)
 
                     ptcp_ready, _, _ = select.select([device_remote], [], [], 0.1)
 
