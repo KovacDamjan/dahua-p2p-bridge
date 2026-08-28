@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::cmp;
 use tokio::net::UdpSocket;
+use tokio::time::{sleep, timeout, Duration, Instant};
 
 pub enum PTCPEvent {
     Heartbeat,
@@ -315,7 +316,23 @@ impl PTCP for UdpSocket {
         println!("---");
 
         let packet = packet.serialize();
-        restart_on_socket_error(self.send(&packet).await, "send");
+        for attempt in 1..=4 {
+            match self.send(&packet).await {
+                Ok(_) => return,
+                Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+                    eprintln!(
+                        "PTCP send received transient Connection refused (attempt {}/4)",
+                        attempt
+                    );
+                    sleep(Duration::from_millis(150)).await;
+                }
+                Err(error) => {
+                    restart_on_socket_error::<usize>(Err(error), "send");
+                }
+            }
+        }
+        eprintln!("PTCP send failed after transient-error retries; requesting full P2P reconnect");
+        std::process::exit(75);
     }
 
     async fn ptcp_read(&self) -> PTCPPacket {
@@ -323,7 +340,28 @@ impl PTCP for UdpSocket {
         println!("### {}", peer);
 
         let mut buf = [0u8; 4096];
-        let n = restart_on_socket_error(self.recv(&mut buf).await, "receive");
+        let recovery_started = Instant::now();
+        let n = loop {
+            match timeout(Duration::from_secs(15), self.recv(&mut buf)).await {
+                Ok(Ok(n)) => break n,
+                Ok(Err(error))
+                    if error.kind() == std::io::ErrorKind::ConnectionRefused
+                        && recovery_started.elapsed() < Duration::from_secs(15) =>
+                {
+                    eprintln!(
+                        "PTCP receive got transient Connection refused; keeping the active RTSP session"
+                    );
+                    sleep(Duration::from_millis(150)).await;
+                }
+                Ok(Err(error)) => {
+                    restart_on_socket_error::<usize>(Err(error), "receive");
+                }
+                Err(_) => {
+                    eprintln!("PTCP receive timed out for 15 seconds; requesting full P2P reconnect");
+                    std::process::exit(75);
+                }
+            }
+        };
 
         println!("<<< {}", peer);
         let packet = PTCPPacket::parse(&buf[0..n]);
