@@ -495,15 +495,18 @@ def main(
             if bind_response is not None:
                 break
         if bind_response is None:
-            print("Camera did not acknowledge RTSP port bind; closing client", flush=True)
+            print(
+                "Camera did not acknowledge RTSP port bind; restarting P2P session",
+                flush=True,
+            )
             socketclient.close()
-            continue
+            sys.exit(75)
         bind_status = bind_response.body[12:]
         print(f"RTSP bind status: {bind_status!r}", flush=True)
         if bind_status == b"DISC":
-            print("Camera rejected RTSP port bind", flush=True)
+            print("Camera rejected RTSP port bind; restarting P2P session", flush=True)
             socketclient.close()
-            continue
+            sys.exit(75)
 
         try:
             while True:
