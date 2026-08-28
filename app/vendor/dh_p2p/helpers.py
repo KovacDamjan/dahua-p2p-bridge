@@ -361,11 +361,24 @@ Content-Length: {len(body)}
         raise ConnectionError(f"No final response received for CSeq {request_cseq}")
 
     def read_ptcp(self, timeout=None):
-        data = self.recv(timeout=timeout)
+        # Hole-punch acknowledgements and delayed Easy4IP control datagrams can
+        # remain queued when PTCP negotiation starts.  They use Dahua's binary
+        # FE/FF magic rather than the literal PTCP header and must not abort the
+        # authenticated session setup.
+        for _ in range(20):
+            data = self.recv(timeout=timeout)
+            if len(data) >= 4 and data[:4] == b"PTCP":
+                break
+            print(
+                f":{self.lport} <<< {self.rhost}:{self.rport} "
+                f"ignoring non-PTCP datagram ({len(data)} bytes): {data[:48].hex()}",
+                flush=True,
+            )
+        else:
+            raise ValueError("No PTCP packet after 20 non-PTCP datagrams")
 
         if self.debug:
             print(f":{self.lport} <<< {self.rhost}:{self.rport}")
-            # print(data)
 
         res = PTCP.parse(data)
         self.ptcp_recv += len(res.body)
