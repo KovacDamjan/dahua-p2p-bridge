@@ -147,9 +147,13 @@ def main(
         ipaddr = f"<IpEncrptV2>true</IpEncrptV2><LocalAddr>{laddr}</LocalAddr>"
         auth = "" if dtype == 0 else get_auth(username, key, nonce, randsalt, laddr)
 
-    res = device_remote.request(
+    p2p_channel_body = (
+        f"<body>{auth}<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
+        f"{ipaddr}<version>5.0.0</version></body>"
+    )
+    device_remote.request(
         f"/device/{serial}/p2p-channel",
-        f"<body>{auth}<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>{ipaddr}<version>5.0.0</version></body>",
+        p2p_channel_body,
         should_read=False,
     )
 
@@ -167,11 +171,34 @@ def main(
         "<body><Client>:0</Client></body>",
     )
 
-    device_remote.settimeout(12)
-    res = device_remote.read(return_error=True)
-    if res["code"] < 200:
-        res = device_remote.read(return_error=True)
-    device_remote.settimeout(None)
+    res = None
+    last_channel_error = None
+    for attempt in range(1, 4):
+        if attempt > 1:
+            print(f"Retrying P2P channel request (attempt {attempt}/3)", flush=True)
+            device_remote.request(
+                f"/device/{serial}/p2p-channel",
+                p2p_channel_body,
+                should_read=False,
+            )
+        device_remote.settimeout(12)
+        try:
+            res = device_remote.read(return_error=True)
+            if res["code"] < 200:
+                res = device_remote.read(return_error=True)
+            break
+        except (OSError, socket.timeout) as error:
+            last_channel_error = error
+            print(f"P2P channel attempt {attempt}/3 failed: {error}", flush=True)
+            res = None
+        finally:
+            device_remote.settimeout(None)
+
+    if res is None:
+        raise ConnectionError(
+            f"Easy4IP did not return P2P channel details after 3 attempts: "
+            f"{last_channel_error}"
+        )
 
     if res["code"] >= 400:
         print("Error:", res["status"])
