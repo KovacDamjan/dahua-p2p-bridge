@@ -17,6 +17,7 @@ TRANSIENT_FAILURE_MARKERS = (
     "did not return authentication salt",
     "devpwd_invalidsalt",
     "encrypted p2p channel response did not include nonce",
+    "p2p channel response missing required fields",
     "no easy4ip p2p server responded",
 )
 

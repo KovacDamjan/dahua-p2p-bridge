@@ -234,7 +234,10 @@ def main(
         device_remote.settimeout(12)
         try:
             res = device_remote.read(return_error=True)
-            if res["code"] < 200:
+            # Easy4IP may emit more than one provisional 100 Trying response
+            # for the same channel request.  Continue until the final HTTP
+            # response instead of treating the second 1xx body as channel data.
+            while res["code"] < 200:
                 res = device_remote.read(return_error=True)
             break
         except (OSError, socket.timeout) as error:
@@ -262,7 +265,15 @@ def main(
 
         sys.exit(1)
 
-    channel_info = res["data"]["body"]
+    channel_info = (res.get("data") or {}).get("body") or {}
+    missing_channel_fields = [
+        field for field in ("LocalAddr", "PubAddr") if not channel_info.get(field)
+    ]
+    if missing_channel_fields:
+        raise ConnectionError(
+            "P2P channel response missing required fields: "
+            + ", ".join(missing_channel_fields)
+        )
     device_laddr = channel_info["LocalAddr"]
     encrypted_address = str(channel_info.get("IpEncrptV2", "")).lower() == "true"
     if dtype > 0 and encrypted_address:
