@@ -34,6 +34,7 @@ def main(
     print(f"Using {cloud} cloud: {main_server}:{main_port}")
 
     socketserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    socketserver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     socketserver.bind(("0.0.0.0", bind_port))
     socketserver.listen(5)
     print(f"Listening on port {bind_port}", flush=True)
