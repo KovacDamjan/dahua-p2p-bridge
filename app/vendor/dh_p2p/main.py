@@ -445,7 +445,12 @@ def main(
             if len(res.body) == 0:
                 continue
 
-            assert res.body[0] == 0x13
+            control = res.body[0]
+            print(
+                f"Idle PTCP control packet: 0x{control:02X} "
+                f"body={res.body.hex()}",
+                flush=True,
+            )
             device_remote.request_ptcp()
 
             continue
