@@ -18,6 +18,52 @@ use crate::{
 mod process;
 mod ptcp;
 
+async fn handle_client(
+    client: tokio::net::TcpStream,
+    addr: std::net::SocketAddr,
+    remote_port: u32,
+    service: &'static str,
+    dh_tx: mpsc::Sender<PTCPEvent>,
+    channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
+    conn_channels: Arc<Mutex<HashMap<u32, oneshot::Sender<bool>>>>,
+) {
+    println!("Accepted {service} connection from {addr}");
+    let realm_id = rand::random::<u32>();
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(128);
+    let (conn_tx, conn_rx) = oneshot::channel::<bool>();
+    channels.lock().unwrap().insert(realm_id, tx);
+    conn_channels.lock().unwrap().insert(realm_id, conn_tx);
+
+    if dh_tx
+        .send(PTCPEvent::Connect(realm_id, remote_port))
+        .await
+        .is_err()
+    {
+        eprintln!("PTCP writer unavailable");
+        channels.lock().unwrap().remove(&realm_id);
+        conn_channels.lock().unwrap().remove(&realm_id);
+        return;
+    }
+    match timeout(Duration::from_secs(12), conn_rx).await {
+        Ok(Ok(true)) => println!("PTCP {service} realm {realm_id:08x} connected"),
+        _ => {
+            println!("PTCP {service} realm {realm_id:08x} bind timed out");
+            channels.lock().unwrap().remove(&realm_id);
+            conn_channels.lock().unwrap().remove(&realm_id);
+            return;
+        }
+    }
+
+    let (reader, writer) = client.into_split();
+    tokio::spawn(process_reader(
+        reader,
+        realm_id,
+        dh_tx,
+        channels,
+    ));
+    tokio::spawn(process_writer(writer, rx));
+}
+
 #[derive(Parser)]
 #[command(about = "Async PTCP tunnel engine for an authenticated Dahua P2P session")]
 struct Cli {
@@ -116,34 +162,14 @@ async fn main() {
                 }
             },
         };
-        println!("Accepted {service} connection from {addr}");
-
-        let realm_id = rand::random::<u32>();
-        let (tx, rx) = mpsc::channel::<Vec<u8>>(128);
-        let (conn_tx, conn_rx) = oneshot::channel::<bool>();
-        channels.lock().unwrap().insert(realm_id, tx);
-        conn_channels.lock().unwrap().insert(realm_id, conn_tx);
-
-        if dh_tx
-            .send(PTCPEvent::Connect(realm_id, remote_port))
-            .await
-            .is_err()
-        {
-            eprintln!("PTCP writer unavailable");
-            continue;
-        }
-        match timeout(Duration::from_secs(12), conn_rx).await {
-            Ok(Ok(true)) => println!("PTCP {service} realm {realm_id:08x} connected"),
-            _ => {
-                println!("PTCP {service} realm {realm_id:08x} bind timed out");
-                channels.lock().unwrap().remove(&realm_id);
-                conn_channels.lock().unwrap().remove(&realm_id);
-                continue;
-            }
-        }
-
-        let (reader, writer) = client.into_split();
-        tokio::spawn(process_reader(reader, realm_id, dh_tx.clone()));
-        tokio::spawn(process_writer(writer, rx));
+        tokio::spawn(handle_client(
+            client,
+            addr,
+            remote_port,
+            service,
+            dh_tx.clone(),
+            channels.clone(),
+            conn_channels.clone(),
+        ));
     }
 }

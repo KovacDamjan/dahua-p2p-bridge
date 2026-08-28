@@ -35,6 +35,7 @@ pub async fn process_reader(
     mut reader: tokio::net::tcp::OwnedReadHalf,
     realm_id: u32,
     dh_tx: mpsc::Sender<PTCPEvent>,
+    channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
 ) {
     let mut buf = [0u8; 4096];
 
@@ -43,7 +44,8 @@ pub async fn process_reader(
             Ok(n) => {
                 if n == 0 {
                     println!("Reader: Socket closed by peer.");
-                    dh_tx.send(PTCPEvent::Disconnect(realm_id)).await.unwrap();
+                    let _ = dh_tx.send(PTCPEvent::Disconnect(realm_id)).await;
+                    channels.lock().unwrap().remove(&realm_id);
                     break;
                 }
 
@@ -51,7 +53,8 @@ pub async fn process_reader(
             }
             Err(e) => {
                 println!("Reader: {}", e);
-                dh_tx.send(PTCPEvent::Disconnect(realm_id)).await.unwrap();
+                let _ = dh_tx.send(PTCPEvent::Disconnect(realm_id)).await;
+                channels.lock().unwrap().remove(&realm_id);
                 break;
             }
         };
@@ -130,6 +133,9 @@ pub async fn dh_reader(
                     if let Some(sender) = conn_channels.lock().unwrap().remove(&realm) {
                         let _ = sender.send(true);
                     }
+                } else if status == "DISC" {
+                    channels.lock().unwrap().remove(&realm);
+                    conn_channels.lock().unwrap().remove(&realm);
                 }
             }
             PTCPBody::Payload(p) => {
