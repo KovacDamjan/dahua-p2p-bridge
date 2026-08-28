@@ -26,9 +26,45 @@ from .helpers import (
 )
 
 
+def launch_engine(
+    device_remote, socketserver, onvif_socketserver, rtsp_port, public_rtsp_port
+):
+    print("Ready to connect", flush=True)
+    print("Test with: rtsp://127.0.0.1/cam/realmonitor?channel=1&subtype=0")
+    receive_buffer = int(os.getenv("P2P_UDP_RECEIVE_BUFFER", str(4 * 1024 * 1024)))
+    device_remote.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, receive_buffer)
+    actual_receive_buffer = device_remote.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    print(f"PTCP UDP receive buffer: {actual_receive_buffer} bytes", flush=True)
+    device_remote.connect((device_remote.rhost, device_remote.rport))
+    engine_path = os.getenv("P2P_RUST_ENGINE", "/usr/local/bin/dh-p2p-engine")
+    engine_command = [
+        engine_path,
+        "--udp-fd", str(device_remote.fileno()),
+        "--listener-fd", str(socketserver.fileno()),
+        "--http-listener-fd", str(onvif_socketserver.fileno()),
+        "--remote-port", str(rtsp_port),
+        "--rtsp-public-port", str(public_rtsp_port),
+        "--session-sent", str(device_remote.ptcp_sent),
+        "--session-recv", str(device_remote.ptcp_recv),
+        "--session-count", str(device_remote.ptcp_count),
+        "--session-id", str(device_remote.ptcp_id),
+        "--session-rmid", str(device_remote.rmid),
+    ]
+    print("Handing authenticated PTCP session to Rust engine", flush=True)
+    engine = subprocess.Popen(
+        engine_command,
+        pass_fds=(
+            device_remote.fileno(),
+            socketserver.fileno(),
+            onvif_socketserver.fileno(),
+        ),
+    )
+    sys.exit(engine.wait())
+
+
 def main(
     serial, dtype=0, username=None, password=None, debug=False, cloud=DEFAULT_CLOUD,
-    bind_port=554, service="both", public_rtsp_port=None
+    bind_port=554, service="both", public_rtsp_port=None, transport="direct"
 ):
     # Rebinds the module-level credentials as well, which UDP.request reads.
     main_server, main_port = set_cloud(cloud)
@@ -276,6 +312,22 @@ def main(
     main_remote.request_ptcp(b"\x00\x03\x01\x00")
     res = main_remote.read_ptcp()
 
+    if transport == "relay":
+        if res.body != b"\x00\x03\x01\x00":
+            raise ConnectionError("Relay transport did not acknowledge PTCP sync")
+        print(
+            f"Using Easy4IP UDP relay transport via {agent_server}:{agent_port}",
+            flush=True,
+        )
+        device_remote.close()
+        launch_engine(
+            main_remote,
+            socketserver,
+            onvif_socketserver,
+            rtsp_port,
+            public_rtsp_port or actual_rtsp_port,
+        )
+
     main_remote.request_ptcp(b"\x17\x00\x00\x00" + b"\x00\x00\x00\x00\x00\x00\x00\x00")
     sign = None
     for _ in range(12):
@@ -441,33 +493,13 @@ def main(
     if close_ack is None:
         raise ConnectionError("Device did not acknowledge PTCP channel setup")
 
-    print("Ready to connect", flush=True)
-    print("Test with: rtsp://127.0.0.1/cam/realmonitor?channel=1&subtype=0")
-    receive_buffer = int(os.getenv("P2P_UDP_RECEIVE_BUFFER", str(4 * 1024 * 1024)))
-    device_remote.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, receive_buffer)
-    actual_receive_buffer = device_remote.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
-    print(f"PTCP UDP receive buffer: {actual_receive_buffer} bytes", flush=True)
-    device_remote.connect((device_server, device_port))
-    engine_path = os.getenv("P2P_RUST_ENGINE", "/usr/local/bin/dh-p2p-engine")
-    engine_command = [
-        engine_path,
-        "--udp-fd", str(device_remote.fileno()),
-        "--listener-fd", str(socketserver.fileno()),
-        "--http-listener-fd", str(onvif_socketserver.fileno()),
-        "--remote-port", str(rtsp_port),
-        "--rtsp-public-port", str(public_rtsp_port or actual_rtsp_port),
-        "--session-sent", str(device_remote.ptcp_sent),
-        "--session-recv", str(device_remote.ptcp_recv),
-        "--session-count", str(device_remote.ptcp_count),
-        "--session-id", str(device_remote.ptcp_id),
-        "--session-rmid", str(device_remote.rmid),
-    ]
-    print("Handing authenticated PTCP session to Rust engine", flush=True)
-    engine = subprocess.Popen(
-        engine_command,
-        pass_fds=(device_remote.fileno(), socketserver.fileno(), onvif_socketserver.fileno()),
+    launch_engine(
+        device_remote,
+        socketserver,
+        onvif_socketserver,
+        rtsp_port,
+        public_rtsp_port or actual_rtsp_port,
     )
-    sys.exit(engine.wait())
 
     while True:
         ready, _, _ = select.select([socketserver], [], [], 0.1)
@@ -659,6 +691,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--service", choices=("both", "rtsp", "onvif"), default="both")
     parser.add_argument("--public-rtsp-port", type=int)
+    parser.add_argument("--transport", choices=("direct", "relay"), default="direct")
     parser.add_argument("-t", "--type", type=int, help="Type of the camera", default=0)
     parser.add_argument("-u", "--username", help="Username of the camera")
     parser.add_argument("-p", "--password", help="Password of the camera")
@@ -690,4 +723,5 @@ if __name__ == "__main__":
             args.bind_port,
             args.service,
             args.public_rtsp_port,
+            args.transport,
         )

@@ -105,6 +105,8 @@ class P2PManager:
             str(bind_port),
             "--public-rtsp-port",
             str(worker.port),
+            "--transport",
+            "relay" if service == "onvif" else "direct",
             worker.camera["serial"],
         ]
         process = subprocess.Popen(
