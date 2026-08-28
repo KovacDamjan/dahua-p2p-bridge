@@ -115,6 +115,8 @@ struct Cli {
     #[arg(long, default_value_t = 554)]
     remote_port: u32,
     #[arg(long)]
+    rtsp_public_port: Option<u16>,
+    #[arg(long)]
     session_sent: u32,
     #[arg(long)]
     session_recv: u32,
@@ -139,7 +141,9 @@ async fn main() {
         .set_nonblocking(true)
         .expect("set listener nonblocking");
     let listener = TcpListener::from_std(listener_std).expect("adopt TCP listener");
-    let rtsp_local_port = listener.local_addr().expect("RTSP listener address").port();
+    let rtsp_local_port = args
+        .rtsp_public_port
+        .unwrap_or_else(|| listener.local_addr().expect("RTSP listener address").port());
 
     let http_listener_std = unsafe { std::net::TcpListener::from_raw_fd(args.http_listener_fd) };
     http_listener_std

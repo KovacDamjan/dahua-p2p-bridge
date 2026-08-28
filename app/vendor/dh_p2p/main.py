@@ -27,7 +27,8 @@ from .helpers import (
 
 
 def main(
-    serial, dtype=0, username=None, password=None, debug=False, cloud=DEFAULT_CLOUD, bind_port=554
+    serial, dtype=0, username=None, password=None, debug=False, cloud=DEFAULT_CLOUD,
+    bind_port=554, service="both", public_rtsp_port=None
 ):
     # Rebinds the module-level credentials as well, which UDP.request reads.
     main_server, main_port = set_cloud(cloud)
@@ -35,15 +36,20 @@ def main(
 
     socketserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     socketserver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    socketserver.bind(("0.0.0.0", bind_port))
+    rtsp_address = ("0.0.0.0", bind_port) if service in ("both", "rtsp") else ("127.0.0.1", 0)
+    socketserver.bind(rtsp_address)
     socketserver.listen(5)
-    print(f"Listening on port {bind_port}", flush=True)
+    actual_rtsp_port = socketserver.getsockname()[1]
+    if service in ("both", "rtsp"):
+        print(f"RTSP listening on port {actual_rtsp_port}", flush=True)
     onvif_socketserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     onvif_socketserver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    onvif_bind_port = bind_port + 1000
-    onvif_socketserver.bind(("0.0.0.0", onvif_bind_port))
+    onvif_bind_port = bind_port + 1000 if service == "both" else bind_port
+    onvif_address = ("0.0.0.0", onvif_bind_port) if service in ("both", "onvif") else ("127.0.0.1", 0)
+    onvif_socketserver.bind(onvif_address)
     onvif_socketserver.listen(5)
-    print(f"ONVIF/HTTP listening on port {onvif_bind_port}", flush=True)
+    if service in ("both", "onvif"):
+        print(f"ONVIF/HTTP listening on port {onvif_socketserver.getsockname()[1]}", flush=True)
 
     if debug:
         subprocess.Popen(
@@ -449,6 +455,7 @@ def main(
         "--listener-fd", str(socketserver.fileno()),
         "--http-listener-fd", str(onvif_socketserver.fileno()),
         "--remote-port", str(rtsp_port),
+        "--rtsp-public-port", str(public_rtsp_port or actual_rtsp_port),
         "--session-sent", str(device_remote.ptcp_sent),
         "--session-recv", str(device_remote.ptcp_recv),
         "--session-count", str(device_remote.ptcp_count),
@@ -650,6 +657,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--bind-port", type=int, default=int(os.getenv("P2P_BIND_PORT", "554"))
     )
+    parser.add_argument("--service", choices=("both", "rtsp", "onvif"), default="both")
+    parser.add_argument("--public-rtsp-port", type=int)
     parser.add_argument("-t", "--type", type=int, help="Type of the camera", default=0)
     parser.add_argument("-u", "--username", help="Username of the camera")
     parser.add_argument("-p", "--password", help="Password of the camera")
@@ -679,4 +688,6 @@ if __name__ == "__main__":
             args.debug,
             args.cloud,
             args.bind_port,
+            args.service,
+            args.public_rtsp_port,
         )
