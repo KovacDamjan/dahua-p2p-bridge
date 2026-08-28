@@ -116,7 +116,7 @@ pub async fn dh_reader(
 ) {
     loop {
         let packet = socket.ptcp_read().await;
-        let packet = session.lock().unwrap().recv(packet);
+        let (packet, deliver) = session.lock().unwrap().recv(packet);
 
         if let PTCPBody::Empty = packet.body {
             continue;
@@ -124,6 +124,12 @@ pub async fn dh_reader(
 
         let p = session.lock().unwrap().send(PTCPBody::Empty);
         socket.ptcp_request(p).await;
+
+        // A repeated UDP datagram must be acknowledged again, but its bytes
+        // must not be written into the RTSP TCP stream a second time.
+        if !deliver {
+            continue;
+        }
 
         match packet.body {
             PTCPBody::Status(realm, status) => {

@@ -292,11 +292,33 @@ impl PTCPSession {
         }
     }
 
-    pub fn recv(&mut self, packet: PTCPPacket) -> PTCPPacket {
-        self.recv += packet.body.len() as u32;
+    pub fn recv(&mut self, packet: PTCPPacket) -> (PTCPPacket, bool) {
+        let packet_start = packet.sent;
+        let packet_end = packet_start.saturating_add(packet.body.len() as u32);
+        let deliver = packet_end > self.recv;
+
+        if deliver {
+            if packet_start > self.recv {
+                eprintln!(
+                    "PTCP receive gap: expected byte {}, got {}; skipping {} missing bytes",
+                    self.recv,
+                    packet_start,
+                    packet_start - self.recv
+                );
+            }
+            // PTCP uses cumulative byte offsets. Advancing from packet.sent is
+            // essential after UDP loss; merely adding the payload length leaves
+            // every later ACK permanently behind the camera's send position.
+            self.recv = packet_end;
+        } else {
+            eprintln!(
+                "PTCP duplicate/old packet: bytes {}..{} already acknowledged through {}",
+                packet_start, packet_end, self.recv
+            );
+        }
         self.rmid = packet.lmid;
 
-        packet
+        (packet, deliver)
     }
 }
 
@@ -383,5 +405,42 @@ fn restart_on_socket_error<T>(result: std::io::Result<T>, operation: &str) -> T 
             );
             std::process::exit(75);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn payload_packet(sent: u32, length: usize) -> PTCPPacket {
+        PTCPPacket {
+            sent,
+            recv: 0,
+            pid: 0,
+            lmid: 1,
+            rmid: 0,
+            body: PTCPBody::Payload(PTCPPayload {
+                realm: 7,
+                data: vec![0; length],
+            }),
+        }
+    }
+
+    #[test]
+    fn cumulative_receive_offset_recovers_after_udp_gap() {
+        let mut session = PTCPSession::from_state(0, 100, 0, 0, 0);
+        let (_, deliver) = session.recv(payload_packet(200, 1280));
+
+        assert!(deliver);
+        assert_eq!(session.recv, 1492);
+    }
+
+    #[test]
+    fn duplicate_payload_is_not_delivered_twice() {
+        let mut session = PTCPSession::from_state(0, 1492, 0, 0, 0);
+        let (_, deliver) = session.recv(payload_packet(200, 1280));
+
+        assert!(!deliver);
+        assert_eq!(session.recv, 1492);
     }
 }
