@@ -27,6 +27,7 @@ async fn handle_client(
     channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
     conn_channels: Arc<Mutex<HashMap<u32, oneshot::Sender<bool>>>>,
     onvif_slots: Arc<Semaphore>,
+    onvif_realm: Arc<Mutex<Option<u32>>>,
     rtsp_local_port: u16,
 ) {
     println!("Accepted {service} connection from {addr}");
@@ -39,29 +40,44 @@ async fn handle_client(
     } else {
         None
     };
-    let realm_id = rand::random::<u32>();
+    let persistent_onvif = service == "ONVIF/HTTP";
+    let existing_onvif_realm = if persistent_onvif {
+        *onvif_realm.lock().unwrap()
+    } else {
+        None
+    };
+    let realm_id = existing_onvif_realm.unwrap_or_else(rand::random::<u32>);
     let (tx, rx) = mpsc::channel::<Vec<u8>>(128);
-    let (conn_tx, conn_rx) = oneshot::channel::<bool>();
     channels.lock().unwrap().insert(realm_id, tx);
-    conn_channels.lock().unwrap().insert(realm_id, conn_tx);
 
-    if dh_tx
-        .send(PTCPEvent::Connect(realm_id, remote_port))
-        .await
-        .is_err()
-    {
-        eprintln!("PTCP writer unavailable");
-        channels.lock().unwrap().remove(&realm_id);
-        conn_channels.lock().unwrap().remove(&realm_id);
-        return;
-    }
-    match timeout(Duration::from_secs(12), conn_rx).await {
-        Ok(Ok(true)) => println!("PTCP {service} realm {realm_id:08x} connected"),
-        _ => {
-            println!("PTCP {service} realm {realm_id:08x} bind timed out");
+    if existing_onvif_realm.is_some() {
+        println!("Reusing PTCP ONVIF/HTTP realm {realm_id:08x}");
+    } else {
+        let (conn_tx, conn_rx) = oneshot::channel::<bool>();
+        conn_channels.lock().unwrap().insert(realm_id, conn_tx);
+        if dh_tx
+            .send(PTCPEvent::Connect(realm_id, remote_port))
+            .await
+            .is_err()
+        {
+            eprintln!("PTCP writer unavailable");
             channels.lock().unwrap().remove(&realm_id);
             conn_channels.lock().unwrap().remove(&realm_id);
             return;
+        }
+        match timeout(Duration::from_secs(12), conn_rx).await {
+            Ok(Ok(true)) => {
+                println!("PTCP {service} realm {realm_id:08x} connected");
+                if persistent_onvif {
+                    *onvif_realm.lock().unwrap() = Some(realm_id);
+                }
+            }
+            _ => {
+                println!("PTCP {service} realm {realm_id:08x} bind timed out");
+                channels.lock().unwrap().remove(&realm_id);
+                conn_channels.lock().unwrap().remove(&realm_id);
+                return;
+            }
         }
     }
 
@@ -82,6 +98,7 @@ async fn handle_client(
         dh_tx,
         channels,
         connection_permit,
+        persistent_onvif,
     ));
     tokio::spawn(process_writer(writer, rx, http_rewrite));
 }
@@ -142,6 +159,7 @@ async fn main() {
     let channels = Arc::new(Mutex::new(HashMap::<u32, mpsc::Sender<Vec<u8>>>::new()));
     let conn_channels = Arc::new(Mutex::new(HashMap::<u32, oneshot::Sender<bool>>::new()));
     let onvif_slots = Arc::new(Semaphore::new(1));
+    let onvif_realm = Arc::new(Mutex::new(None::<u32>));
 
     let socket = Arc::new(socket);
     tokio::spawn(dh_writer(
@@ -195,6 +213,7 @@ async fn main() {
             channels.clone(),
             conn_channels.clone(),
             onvif_slots.clone(),
+            onvif_realm.clone(),
             rtsp_local_port,
         ));
     }

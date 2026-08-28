@@ -150,6 +150,7 @@ pub async fn process_reader(
     dh_tx: mpsc::Sender<PTCPEvent>,
     channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
     _connection_permit: Option<OwnedSemaphorePermit>,
+    persistent_realm: bool,
 ) {
     let mut buf = [0u8; 4096];
 
@@ -158,7 +159,9 @@ pub async fn process_reader(
             Ok(n) => {
                 if n == 0 {
                     println!("Reader: Socket closed by peer.");
-                    let _ = dh_tx.send(PTCPEvent::Disconnect(realm_id)).await;
+                    if !persistent_realm {
+                        let _ = dh_tx.send(PTCPEvent::Disconnect(realm_id)).await;
+                    }
                     channels.lock().unwrap().remove(&realm_id);
                     break;
                 }
@@ -167,7 +170,9 @@ pub async fn process_reader(
             }
             Err(e) => {
                 println!("Reader: {}", e);
-                let _ = dh_tx.send(PTCPEvent::Disconnect(realm_id)).await;
+                if !persistent_realm {
+                    let _ = dh_tx.send(PTCPEvent::Disconnect(realm_id)).await;
+                }
                 channels.lock().unwrap().remove(&realm_id);
                 break;
             }
