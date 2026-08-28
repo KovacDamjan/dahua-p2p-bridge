@@ -517,6 +517,13 @@ def main(
 
                     body = PTCPPayload.parse(res.body)
 
+                    response_line = body.payload.split(b"\r\n", 1)[0][:160]
+                    print(
+                        f"Camera -> RTSP client: {len(body.payload)} bytes "
+                        f"({response_line!r})",
+                        flush=True,
+                    )
+
                     if debug:
                         print()
                         print(body)
@@ -539,6 +546,12 @@ def main(
                 if not data:
                     print("Connection closed?")
                     break
+
+                request_line = data.split(b"\r\n", 1)[0][:160]
+                print(
+                    f"RTSP client -> camera: {len(data)} bytes ({request_line!r})",
+                    flush=True,
+                )
 
                 if debug:
                     print()
