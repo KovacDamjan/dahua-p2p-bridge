@@ -234,6 +234,7 @@ pub async fn dh_reader(
     socket: Arc<UdpSocket>,
     channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
     conn_channels: Arc<Mutex<HashMap<u32, oneshot::Sender<bool>>>>,
+    onvif_realm: Arc<Mutex<Option<u32>>>,
 ) {
     loop {
         let packet = socket.ptcp_read().await;
@@ -255,6 +256,13 @@ pub async fn dh_reader(
                 } else if status == "DISC" {
                     channels.lock().unwrap().remove(&realm);
                     conn_channels.lock().unwrap().remove(&realm);
+                    let mut current_onvif_realm = onvif_realm.lock().unwrap();
+                    if *current_onvif_realm == Some(realm) {
+                        println!(
+                            "Camera closed PTCP ONVIF/HTTP realm {realm:08x}; next request will rebind"
+                        );
+                        *current_onvif_realm = None;
+                    }
                 }
             }
             PTCPBody::Payload(p) => {

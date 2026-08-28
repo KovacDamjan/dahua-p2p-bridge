@@ -172,6 +172,7 @@ async fn main() {
         socket.clone(),
         channels.clone(),
         conn_channels.clone(),
+        onvif_realm.clone(),
     ));
 
     let heartbeat_tx = dh_tx.clone();
