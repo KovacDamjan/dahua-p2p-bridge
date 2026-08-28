@@ -90,11 +90,17 @@ async fn handle_client(
         reader,
         realm_id,
         dh_tx,
-        channels,
-        connection_permit,
+        channels.clone(),
         persistent_onvif,
     ));
-    tokio::spawn(process_writer(writer, rx, http_rewrite));
+    tokio::spawn(process_writer(
+        writer,
+        rx,
+        http_rewrite,
+        realm_id,
+        channels,
+        connection_permit,
+    ));
 }
 
 #[derive(Parser)]

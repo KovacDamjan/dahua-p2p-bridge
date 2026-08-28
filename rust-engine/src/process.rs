@@ -92,6 +92,9 @@ pub async fn process_writer(
     mut writer: tokio::net::tcp::OwnedWriteHalf,
     mut rx: mpsc::Receiver<Vec<u8>>,
     http_rewrite: Option<HttpRewriteConfig>,
+    realm_id: u32,
+    channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
+    _connection_permit: Option<OwnedSemaphorePermit>,
 ) {
     if let Some(config) = http_rewrite {
         let mut response = Vec::new();
@@ -111,6 +114,7 @@ pub async fn process_writer(
             );
             let _ = writer.write_all(&rewritten).await;
         }
+        channels.lock().unwrap().remove(&realm_id);
         return;
     }
     loop {
@@ -149,7 +153,6 @@ pub async fn process_reader(
     realm_id: u32,
     dh_tx: mpsc::Sender<PTCPEvent>,
     channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
-    _connection_permit: Option<OwnedSemaphorePermit>,
     persistent_realm: bool,
 ) {
     let mut buf = [0u8; 4096];
@@ -161,8 +164,12 @@ pub async fn process_reader(
                     println!("Reader: Socket closed by peer.");
                     if !persistent_realm {
                         let _ = dh_tx.send(PTCPEvent::Disconnect(realm_id)).await;
+                        channels.lock().unwrap().remove(&realm_id);
+                    } else {
+                        println!(
+                            "ONVIF client finished sending request; waiting for camera response"
+                        );
                     }
-                    channels.lock().unwrap().remove(&realm_id);
                     break;
                 }
 
@@ -172,8 +179,10 @@ pub async fn process_reader(
                 println!("Reader: {}", e);
                 if !persistent_realm {
                     let _ = dh_tx.send(PTCPEvent::Disconnect(realm_id)).await;
+                    channels.lock().unwrap().remove(&realm_id);
+                } else {
+                    println!("ONVIF request reader closed; waiting for camera response");
                 }
-                channels.lock().unwrap().remove(&realm_id);
                 break;
             }
         };
