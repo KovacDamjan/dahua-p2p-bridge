@@ -91,6 +91,7 @@ class P2PManager:
         env.update(
             P2P_USERNAME=worker.camera["username"],
             P2P_PASSWORD=worker.password,
+            P2P_IDLE_RECONNECT_SECONDS="0" if service == "onvif" else "60",
             PYTHONUNBUFFERED="1",
         )
         command = [

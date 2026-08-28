@@ -339,6 +339,16 @@ fn packet_debug_enabled() -> bool {
     })
 }
 
+fn idle_reconnect_seconds() -> u64 {
+    static SECONDS: OnceLock<u64> = OnceLock::new();
+    *SECONDS.get_or_init(|| {
+        std::env::var("P2P_IDLE_RECONNECT_SECONDS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(60)
+    })
+}
+
 #[async_trait]
 pub trait PTCP {
     async fn ptcp_request(&self, packet: PTCPPacket);
@@ -386,6 +396,7 @@ impl PTCP for UdpSocket {
 
         let mut buf = [0u8; 4096];
         let recovery_started = Instant::now();
+        let idle_limit = idle_reconnect_seconds();
         let n = loop {
             match timeout(Duration::from_secs(15), self.recv(&mut buf)).await {
                 Ok(Ok(n)) => break n,
@@ -401,14 +412,20 @@ impl PTCP for UdpSocket {
                 Ok(Err(error)) => {
                     restart_on_socket_error::<usize>(Err(error), "receive");
                 }
-                Err(_) if recovery_started.elapsed() < Duration::from_secs(60) => {
+                Err(_)
+                    if idle_limit == 0
+                        || recovery_started.elapsed() < Duration::from_secs(idle_limit) =>
+                {
                     eprintln!(
                         "PTCP receive idle for 15 seconds; preserving the active session"
                     );
                     continue;
                 }
                 Err(_) => {
-                    eprintln!("PTCP receive timed out for 60 seconds; requesting full P2P reconnect");
+                    eprintln!(
+                        "PTCP receive timed out for {} seconds; requesting full P2P reconnect",
+                        idle_limit
+                    );
                     std::process::exit(75);
                 }
             }
