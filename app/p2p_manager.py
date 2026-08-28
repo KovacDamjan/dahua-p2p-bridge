@@ -11,6 +11,7 @@ TRANSIENT_FAILURE_MARKERS = (
     "timed out",
     "temporary failure in name resolution",
     "connection refused",
+    "timeout occurred",
     "did not return nat info",
     "did not return p2p channel",
     "no easy4ip p2p server responded",
@@ -82,20 +83,7 @@ class P2PManager:
         with self._lock:
             self._workers[camera_id] = worker
         self._start_service(camera_id, worker, "rtsp")
-        threading.Thread(
-            target=self._delayed_start_service,
-            args=(camera_id, worker, "onvif", 5),
-            daemon=True,
-        ).start()
         return worker
-
-    def _delayed_start_service(
-        self, camera_id: int, worker: WorkerState, service: str, delay: int
-    ) -> None:
-        threading.Event().wait(delay)
-        with self._lock:
-            if self._workers.get(camera_id) is worker:
-                self._start_service(camera_id, worker, service)
 
     def _start_service(self, camera_id: int, worker: WorkerState, service: str) -> None:
         bind_port = worker.port if service == "rtsp" else self.onvif_port_for(camera_id)
@@ -149,6 +137,11 @@ class P2PManager:
                 if "Ready to connect" in line:
                     state.status = "online"
                     state.last_error = None
+                    if state.service == "rtsp" and "onvif" not in worker.services:
+                        worker.logs.append(
+                            "[ONVIF] RTSP session is ready; starting isolated ONVIF handshake"
+                        )
+                        self._start_service(camera_id, worker, "onvif")
                 elif "Error:" in line or "Traceback" in line:
                     state.last_error = line
 
