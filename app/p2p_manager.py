@@ -6,6 +6,15 @@ from dataclasses import dataclass, field
 
 LOG_HISTORY_LIMIT = max(100, int(os.getenv("P2P_LOG_HISTORY", "1000")))
 LOG_STATUS_LIMIT = max(20, int(os.getenv("P2P_LOG_STATUS_LINES", "500")))
+TRANSIENT_RETRY_SECONDS = max(1, int(os.getenv("P2P_TRANSIENT_RETRY_SECONDS", "10")))
+TRANSIENT_FAILURE_MARKERS = (
+    "timed out",
+    "temporary failure in name resolution",
+    "connection refused",
+    "did not return nat info",
+    "did not return p2p channel",
+    "no easy4ip p2p server responded",
+)
 
 
 @dataclass
@@ -94,6 +103,7 @@ class P2PManager:
 
         return_code = state.process.wait()
         restart = False
+        restart_delay = 1
         with self._lock:
             if self._workers.get(camera_id) is state:
                 if return_code == 75:
@@ -102,13 +112,26 @@ class P2PManager:
                     state.logs.append("P2P engine requested reconnect; rebuilding tunnel")
                     state.logs[:] = state.logs[-LOG_HISTORY_LIMIT:]
                     restart = True
+                elif return_code != 0 and any(
+                    marker in line.lower()
+                    for line in state.logs[-100:]
+                    for marker in TRANSIENT_FAILURE_MARKERS
+                ):
+                    state.status = "connecting"
+                    state.logs.append(
+                        "Transient Easy4IP connection failure; "
+                        f"retrying P2P handshake in {TRANSIENT_RETRY_SECONDS} seconds"
+                    )
+                    state.logs[:] = state.logs[-LOG_HISTORY_LIMIT:]
+                    restart = True
+                    restart_delay = TRANSIENT_RETRY_SECONDS
                 else:
                     state.status = "stopped" if return_code == 0 else "error"
                 if return_code not in (0, 75) and not state.last_error:
                     state.last_error = f"P2P worker exited with code {return_code}"
 
         if restart:
-            threading.Event().wait(1)
+            threading.Event().wait(restart_delay)
             with self._lock:
                 if self._workers.get(camera_id) is state:
                     previous_logs = list(state.logs)
