@@ -313,6 +313,22 @@ impl PTCPSession {
             return Vec::new();
         }
 
+        // A pid with the 0x0100 prefix is a PTCP control/recovery packet.  It
+        // can arrive after an application-data datagram was permanently lost.
+        // Holding it behind that gap leaves our advertised receive offset
+        // unchanged, so the camera repeats the control packet and eventually
+        // closes the UDP endpoint.  Skip only this unrecoverable control gap;
+        // ordinary RTSP/ONVIF payload still uses the reorder buffer below.
+        if packet.pid & 0xFF00_0000 == 0x0100_0000 && packet_start > self.recv {
+            eprintln!(
+                "PTCP control packet skipped missing bytes {}..{}; advancing acknowledgement",
+                self.recv, packet_start
+            );
+            self.pending.clear();
+            self.recv = packet_end;
+            return vec![packet];
+        }
+
         if packet_start > self.recv && self.pending.is_empty() {
             eprintln!(
                 "PTCP receive gap: expected byte {}, got {}; buffering out-of-order packets",
@@ -461,6 +477,25 @@ fn restart_on_socket_error<T>(result: std::io::Result<T>, operation: &str) -> T 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_packet_advances_past_unrecoverable_gap() {
+        let mut session = PTCPSession::from_state(0, 100, 0, 0, 0);
+        let packet = PTCPPacket {
+            sent: 200,
+            recv: 0,
+            pid: 0x0100_FFEB,
+            lmid: 1,
+            rmid: 0,
+            body: PTCPBody::Command(vec![0x0A, 0, 0, 0]),
+        };
+
+        let ready = session.recv(packet);
+
+        assert_eq!(ready.len(), 1);
+        assert_eq!(session.recv, 204);
+        assert!(session.pending.is_empty());
+    }
 
     fn payload_packet(sent: u32, length: usize) -> PTCPPacket {
         PTCPPacket {
