@@ -110,7 +110,7 @@ class P2PManager:
             "P2P_VENDOR_WORKER", "/usr/local/lib/p2p_relay_multi.exe"
         )
         command = [
-            os.getenv("WINE_BIN", "wine"),
+            os.getenv("WINE_BIN", "wine64"),
             worker_path,
             "--serial", worker.camera["serial"],
             "--user", worker.camera["username"],
