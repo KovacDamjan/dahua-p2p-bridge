@@ -63,8 +63,7 @@ int main(int argc,char **argv) {
     if(!P2P_Init||!P2P_UnInit||!P2P_QueryServerStatus||!P2P_DeviceStatus||!P2P_GetDeviceInfo||!P2P_QueryChannelStatus||!P2P_Connect||!P2P_Disconnect) {
         fprintf(stderr,"ERROR missing P2PDll exports\n"); FreeLibrary(dll); return 4;
     }
-    void *handle=NULL; int type=0;
-    int rc=P2P_Init(type,server,8800,"996103384cdf19179e19243e959bbf8b","cba1b29e32cb17aa46b8ff9e73c7f40b",&handle,"Client/SmartPSS_Win");
+    void *handle=NULL; int type=0;\n    void *map_handles[8]={0};\n    int rc=P2P_Init(type,server,8800,"996103384cdf19179e19243e959bbf8b","cba1b29e32cb17aa46b8ff9e73c7f40b",&handle,"Client/SmartPSS_Win");
     printf("INFO P2P_Init rc=%d\n",rc); if(rc||!handle) { FreeLibrary(dll); return 5; }
     rc=P2P_QueryServerStatus(type,handle); printf("INFO server_status=%d\n",rc);
     rc=P2P_DeviceStatus(type,handle,serial); printf("INFO device_status=%d\n",rc); if(rc) goto cleanup_error;
@@ -72,15 +71,13 @@ int main(int argc,char **argv) {
     rc=P2P_GetDeviceInfo(type,handle,serial,sizeof(info),info);
     extract_json_string(info,"randsalt",salt,sizeof(salt)); extract_json_string(info,"devp2pver",version,sizeof(version));
     printf("INFO device_info rc=%d salt=%s version=%s\n",rc,salt[0]?"yes":"no",version);
-    for(int i=0;i<map_count;i++) {
-        int requested=maps[i].local_port;
-        rc=P2P_Connect(type,handle,serial,maps[i].remote_port,&maps[i].local_port,user,password,salt,version);
+    for(int i=0;i<map_count;i++) {\n        if(i>0) {\n            rc=P2P_Init(type,server,8800,"996103384cdf19179e19243e959bbf8b","cba1b29e32cb17aa46b8ff9e73c7f40b",&map_handles[i],"Client/SmartPSS_Win");\n            printf("INFO P2P_Init map=%d rc=%d\\n",i,rc);\n            if(rc||!map_handles[i]) goto cleanup_error;\n            rc=P2P_DeviceStatus(type,map_handles[i],serial);\n            printf("INFO device_status map=%d status=%d\\n",i,rc);\n            if(rc) goto cleanup_error;\n        }\n        int requested=maps[i].local_port;\n        rc=P2P_Connect(type,map_handles[i],serial,maps[i].remote_port,&maps[i].local_port,user,password,salt,version);
         printf("INFO connect remote=%d requested_local=%d rc=%d local=%d\n",maps[i].remote_port,requested,rc,maps[i].local_port);
         if(rc) goto cleanup_error;
         maps[i].connected=1;
         DWORD deadline=GetTickCount()+90000; int st=11;
         while(!stop_requested&&GetTickCount()<deadline) {
-            st=P2P_QueryChannelStatus(type,handle,maps[i].local_port);
+            st=P2P_QueryChannelStatus(type,map_handles[i],maps[i].local_port);
             if(st==0||st==1) break; if(st!=11) { fprintf(stderr,"ERROR invalid channel status remote=%d status=%d\n",maps[i].remote_port,st); goto cleanup_error; }
             Sleep(200);
         }
@@ -99,6 +96,5 @@ int main(int argc,char **argv) {
     goto cleanup;
 cleanup_error: rc=rc?rc:9;
 cleanup:
-    for(int i=map_count-1;i>=0;i--) if(maps[i].connected) P2P_Disconnect(type,handle,serial,maps[i].remote_port,maps[i].local_port);
-    P2P_UnInit(type,handle); FreeLibrary(dll); return rc;
+    for(int i=map_count-1;i>=0;i--) if(maps[i].connected&&map_handles[i]) P2P_Disconnect(type,map_handles[i],serial,maps[i].remote_port,maps[i].local_port);\n    for(int i=map_count-1;i>=0;i--) if(map_handles[i]) P2P_UnInit(type,map_handles[i]);\n    FreeLibrary(dll); return rc;
 }
