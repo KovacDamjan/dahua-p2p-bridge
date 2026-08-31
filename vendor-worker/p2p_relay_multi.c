@@ -122,6 +122,7 @@ int main(int argc,char **argv) {
     while(!stop_requested) {
         Sleep(5000);
         for(int i=0;i<map_count;i++) {
+            if(!maps[i].connected) continue;
             int st=P2P_QueryChannelStatus(type,map_handles[i],maps[i].local_port);
             printf("ALIVE remote=%d local=%d status=%d\n",maps[i].remote_port,maps[i].local_port,st);
             if(st!=0&&st!=1&&st!=11) { fprintf(stderr,"ERROR channel lost remote=%d status=%d\n",maps[i].remote_port,st); stop_requested=1; rc=10; }
