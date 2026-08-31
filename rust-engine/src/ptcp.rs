@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::{cmp, collections::BTreeMap, sync::OnceLock};
+use std::{cmp, sync::OnceLock};
 use tokio::net::UdpSocket;
 use tokio::time::{sleep, timeout, Duration, Instant};
 
@@ -237,7 +237,6 @@ pub struct PTCPSession {
     count: u32,
     id: u32,
     rmid: u32,
-    pending: BTreeMap<u32, PTCPPacket>,
 }
 
 impl PTCPSession {
@@ -248,7 +247,6 @@ impl PTCPSession {
             count: 0,
             id: 0,
             rmid: 0,
-            pending: BTreeMap::new(),
         }
     }
 
@@ -259,7 +257,6 @@ impl PTCPSession {
             count,
             id,
             rmid,
-            pending: BTreeMap::new(),
         }
     }
 
@@ -297,13 +294,16 @@ impl PTCPSession {
 
     pub fn recv(&mut self, packet: PTCPPacket) -> Vec<PTCPPacket> {
         let packet_start = packet.sent;
-        let packet_end = packet_start.saturating_add(packet.body.len() as u32);
+        let packet_end = packet_start.wrapping_add(packet.body.len() as u32);
         self.rmid = packet.lmid;
 
         if packet.body.len() == 0 {
             return Vec::new();
         }
-        if packet_end <= self.recv || self.pending.contains_key(&packet_start) {
+        // PTCP byte counters are wrapping u32 sequence numbers.  A negative or
+        // zero signed distance means that this datagram has already been
+        // acknowledged.  Plain integer comparisons fail after counter wrap.
+        if !sequence_after(packet_end, self.recv) {
             if packet_debug_enabled() {
                 eprintln!(
                     "PTCP duplicate/old packet: bytes {}..{} already received through {}",
@@ -313,37 +313,24 @@ impl PTCPSession {
             return Vec::new();
         }
 
-        // A pid with the 0x0100 prefix is a PTCP control/recovery packet.  It
-        // can arrive after an application-data datagram was permanently lost.
-        // Holding it behind that gap leaves our advertised receive offset
-        // unchanged, so the camera repeats the control packet and eventually
-        // closes the UDP endpoint.  Skip only this unrecoverable control gap;
-        // ordinary RTSP/ONVIF payload still uses the reorder buffer below.
-        if packet.pid & 0xFF00_0000 == 0x0100_0000 && packet_start > self.recv {
+        // Easy4IP/PTCP does not provide a usable retransmission request for a
+        // permanently lost UDP datagram.  Keeping later packets in a reorder
+        // queue therefore freezes the cumulative acknowledgement forever.
+        // Advance to the remote packet end; RTSP/RTP can recover at the next
+        // framing boundary/keyframe, while the P2P control session stays alive.
+        if packet_start != self.recv {
             eprintln!(
-                "PTCP control packet skipped missing bytes {}..{}; advancing acknowledgement",
-                self.recv, packet_start
-            );
-            self.pending.clear();
-            self.recv = packet_end;
-            return vec![packet];
-        }
-
-        if packet_start > self.recv && self.pending.is_empty() {
-            eprintln!(
-                "PTCP receive gap: expected byte {}, got {}; buffering out-of-order packets",
+                "PTCP receive gap: skipping missing bytes {}..{} and advancing acknowledgement",
                 self.recv, packet_start
             );
         }
-        self.pending.insert(packet_start, packet);
-
-        let mut ready = Vec::new();
-        while let Some(packet) = self.pending.remove(&self.recv) {
-            self.recv = self.recv.saturating_add(packet.body.len() as u32);
-            ready.push(packet);
-        }
-        ready
+        self.recv = packet_end;
+        vec![packet]
     }
+}
+
+fn sequence_after(value: u32, reference: u32) -> bool {
+    (value.wrapping_sub(reference) as i32) > 0
 }
 
 fn packet_debug_enabled() -> bool {
@@ -479,7 +466,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn control_packet_advances_past_unrecoverable_gap() {
+    fn packet_advances_past_unrecoverable_gap() {
         let mut session = PTCPSession::from_state(0, 100, 0, 0, 0);
         let packet = PTCPPacket {
             sent: 200,
@@ -494,7 +481,6 @@ mod tests {
 
         assert_eq!(ready.len(), 1);
         assert_eq!(session.recv, 204);
-        assert!(session.pending.is_empty());
     }
 
     fn payload_packet(sent: u32, length: usize) -> PTCPPacket {
@@ -512,13 +498,12 @@ mod tests {
     }
 
     #[test]
-    fn cumulative_receive_offset_recovers_after_udp_gap() {
+    fn cumulative_receive_offset_advances_after_udp_gap() {
         let mut session = PTCPSession::from_state(0, 100, 0, 0, 0);
         let ready = session.recv(payload_packet(200, 1280));
 
-        assert!(ready.is_empty());
-        assert_eq!(session.recv, 100);
-        assert_eq!(session.pending.len(), 1);
+        assert_eq!(ready.len(), 1);
+        assert_eq!(session.recv, 1480);
     }
 
     #[test]
@@ -528,5 +513,14 @@ mod tests {
 
         assert!(ready.is_empty());
         assert_eq!(session.recv, 1492);
+    }
+
+    #[test]
+    fn receive_offset_wraps_without_treating_new_packet_as_old() {
+        let mut session = PTCPSession::from_state(0, u32::MAX - 3, 0, 0, 0);
+        let ready = session.recv(payload_packet(u32::MAX - 3, 8));
+
+        assert_eq!(ready.len(), 1);
+        assert_eq!(session.recv, 4);
     }
 }

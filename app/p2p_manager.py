@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 
 LOG_HISTORY_LIMIT = max(100, int(os.getenv("P2P_LOG_HISTORY", "1000")))
@@ -28,6 +29,8 @@ class ServiceState:
     service: str
     status: str = "connecting"
     last_error: str | None = None
+    reconnect_attempt: int = 0
+    online_since: float | None = None
 
 
 @dataclass
@@ -148,6 +151,8 @@ class P2PManager:
                 if "Ready to connect" in line:
                     state.status = "online"
                     state.last_error = None
+                    if line == "Ready to connect!":
+                        state.online_since = time.monotonic()
                     if state.service == "rtsp" and "onvif" not in worker.services:
                         worker.services["onvif"] = state
                         worker.logs.append(
@@ -166,9 +171,17 @@ class P2PManager:
                 if return_code == 75:
                     state.status = "connecting"
                     state.last_error = None
+                    if (
+                        state.online_since is not None
+                        and time.monotonic() - state.online_since >= 60
+                    ):
+                        state.reconnect_attempt = 0
+                    state.online_since = None
+                    state.reconnect_attempt += 1
+                    restart_delay = min(30, 2 ** min(state.reconnect_attempt, 5))
                     worker.logs.append(
                         f"[{state.service.upper()}] P2P engine requested reconnect; "
-                        "rebuilding only this session"
+                        f"rebuilding this session in {restart_delay} seconds"
                     )
                     restart = True
                 elif return_code != 0 and any(
