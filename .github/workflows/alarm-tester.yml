@@ -13,10 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build with MSVC
-        shell: cmd
+        shell: powershell
         run: |
-          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cl /nologo /O2 /W4 /DWIN32 vendor-worker\dhnetsdk_alarm_worker.c /link /OUT:dhnetsdk_alarm_worker.exe
+          $vs = & "$env:ProgramFiles\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "MSVC installation not found" }
+          & cmd.exe /c ('"' + $vs.Trim() + '\VC\Auxiliary\Build\vcvars64.bat" && cl /nologo /O2 /W4 /DWIN32 vendor-worker\dhnetsdk_alarm_worker.c /link /OUT:dhnetsdk_alarm_worker.exe')
       - uses: actions/upload-artifact@v4
         with:
           name: dhnetsdk-alarm-worker
