@@ -136,7 +136,7 @@ class P2PManager:
         )
         state = ServiceState(process=process, service=service)
         worker.services[service] = state
-        worker.logs.append(f"[{service.upper()}] Starting independent P2P session")
+        worker.logs.append("[P2P] Starting shared RTSP + ONVIF P2P session")
         worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
         threading.Thread(
             target=self._read_output,
@@ -151,7 +151,9 @@ class P2PManager:
         for raw_line in state.process.stdout:
             line = raw_line.rstrip()
             with self._lock:
-                worker.logs.append(f"[{state.service.upper()}] {line}")
+                # RTSP and ONVIF share this one authenticated upstream process.
+                # Prefixing every line as RTSP made ONVIF traffic misleading.
+                worker.logs.append(f"[P2P] {line}")
                 worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
                 if "Ready to connect" in line:
                     state.status = "online"
@@ -185,7 +187,7 @@ class P2PManager:
                     state.reconnect_attempt += 1
                     restart_delay = min(30, 2 ** min(state.reconnect_attempt, 5))
                     worker.logs.append(
-                        f"[{state.service.upper()}] P2P engine requested reconnect; "
+                        "[P2P] P2P engine requested reconnect; "
                         f"rebuilding this session in {restart_delay} seconds"
                     )
                     restart = True
@@ -196,7 +198,7 @@ class P2PManager:
                 ):
                     state.status = "connecting"
                     worker.logs.append(
-                        f"[{state.service.upper()}] Transient Easy4IP failure; retrying in "
+                        "[P2P] Transient Easy4IP failure; retrying in "
                         f"{TRANSIENT_RETRY_SECONDS} seconds"
                     )
                     restart = True
