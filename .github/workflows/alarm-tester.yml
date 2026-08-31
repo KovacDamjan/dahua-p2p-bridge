@@ -1,0 +1,23 @@
+name: Build Dahua alarm tester
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - vendor-worker/dhnetsdk_alarm_worker.c
+      - .github/workflows/alarm-tester.yml
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with MSVC
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cl /nologo /O2 /W4 /DWIN32 vendor-worker\dhnetsdk_alarm_worker.c /link /OUT:dhnetsdk_alarm_worker.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dhnetsdk-alarm-worker
+          path: dhnetsdk_alarm_worker.exe
