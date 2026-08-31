@@ -12,12 +12,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
       - name: Build with MSVC
-        shell: powershell
-        run: |
-          $vs = & "$env:ProgramFiles\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $vs) { throw "MSVC installation not found" }
-          & cmd.exe /c ('"' + $vs.Trim() + '\VC\Auxiliary\Build\vcvars64.bat" && cl /nologo /O2 /W4 /DWIN32 vendor-worker\dhnetsdk_alarm_worker.c /link /OUT:dhnetsdk_alarm_worker.exe')
+        shell: cmd
+        run: cl /nologo /O2 /W4 /DWIN32 vendor-worker\dhnetsdk_alarm_worker.c /link /OUT:dhnetsdk_alarm_worker.exe
       - uses: actions/upload-artifact@v4
         with:
           name: dhnetsdk-alarm-worker
