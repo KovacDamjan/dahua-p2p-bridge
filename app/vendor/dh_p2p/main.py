@@ -491,9 +491,45 @@ def main(
         print("".join(f"\\x{b:02X}" for b in data))
     print(f"Hole-punch acknowledgements received: {replies}", flush=True)
 
+    if replies == 0:
+        # The cloud advertised both p2p and udprelay.  A direct UDP route is
+        # not usable when the camera never acknowledges the hole punch.  The
+        # relay PTCP session above is already authenticated and synchronized,
+        # so hand it to the engine instead of blocking forever on the direct
+        # socket.  This mirrors the transport fallback performed by DMSS.
+        print(
+            "Direct P2P hole punch failed; switching to the active Easy4IP UDP relay",
+            flush=True,
+        )
+        device_remote.close()
+        launch_engine(
+            main_remote,
+            socketserver,
+            onvif_socketserver,
+            rtsp_port,
+            public_rtsp_port or actual_rtsp_port,
+        )
+
     device_remote.request_ptcp(b"\x00\x03\x01\x00")
-    res = device_remote.read_ptcp()
-    assert res.body == b"\x00\x03\x01\x00"
+    try:
+        res = device_remote.read_ptcp(timeout=5)
+    except socket.timeout:
+        print(
+            "Direct P2P sync timed out; switching to the active Easy4IP UDP relay",
+            flush=True,
+        )
+        device_remote.close()
+        launch_engine(
+            main_remote,
+            socketserver,
+            onvif_socketserver,
+            rtsp_port,
+            public_rtsp_port or actual_rtsp_port,
+        )
+    if res.body != b"\x00\x03\x01\x00":
+        raise ConnectionError(
+            f"Unexpected direct PTCP sync response: {res.body.hex()}"
+        )
 
     channel_request = (
         b"\x19\x00\x00\x00" + b"\x00\x00\x00\x00" + b"\x00\x00\x00\x00" + sign
