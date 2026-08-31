@@ -84,7 +84,7 @@ int main(int argc,char **argv) {
             if(st==0||st==1) break; if(st!=11) { fprintf(stderr,"ERROR invalid channel status remote=%d status=%d\n",maps[i].remote_port,st); goto cleanup_error; }
             Sleep(200);
         }
-        if(st!=0) { fprintf(stderr,"ERROR channel ready timeout remote=%d status=%d\n",maps[i].remote_port,st); goto cleanup_error; }
+        if(st!=0&&st!=1) { fprintf(stderr,"ERROR channel ready timeout remote=%d status=%d\n",maps[i].remote_port,st); goto cleanup_error; }
         printf("READY remote=%d local=%d\n",maps[i].remote_port,maps[i].local_port);
     }
     printf("ONLINE all_ports_ready=%d\n",map_count);
