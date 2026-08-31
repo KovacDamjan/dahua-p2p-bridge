@@ -40,6 +40,7 @@ class WorkerState:
     password: str
     services: dict[str, ServiceState] = field(default_factory=dict)
     logs: list[str] = field(default_factory=list)
+    proxy_process: subprocess.Popen | None = None
 
     @property
     def status(self) -> str:
@@ -118,7 +119,7 @@ class P2PManager:
             "--password", worker.password,
             "--dll-dir", "Z:\\vendor",
             "--map", f"554:{rtsp_port}",
-            "--map", f"80:{onvif_port}",
+            "--map", "80:18080",
         ]
         process = subprocess.Popen(
             command, env=env, stdout=subprocess.PIPE,
@@ -128,6 +129,12 @@ class P2PManager:
         worker.services["rtsp"] = state
         worker.services["onvif"] = ServiceState(process=process, service="onvif")
         worker.logs.append("[P2P] Starting private Dahua P2PDll worker (RTSP + ONVIF)")
+        proxy = subprocess.Popen([
+            sys.executable, "-m", "app.onvif_proxy",
+            "--listen-port", str(onvif_port), "--upstream-port", "18080",
+            "--public-host", os.getenv("ONVIF_PUBLIC_HOST", "127.0.0.1")
+        ], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        worker.proxy_process = proxy
         threading.Thread(
             target=self._read_output, args=(camera_id, worker, state), daemon=True
         ).start()
@@ -273,6 +280,8 @@ class P2PManager:
             worker = self._workers.pop(camera_id, None)
         if not worker:
             return
+        if worker.proxy_process and worker.proxy_process.poll() is None:
+            worker.proxy_process.terminate()
         states = list({id(state): state for state in worker.services.values()}.values())
         for state in states:
             if state.process.poll() is None:
