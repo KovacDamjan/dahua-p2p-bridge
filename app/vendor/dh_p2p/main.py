@@ -88,15 +88,6 @@ def main(
     if service in ("both", "onvif"):
         print(f"ONVIF/HTTP listening on port {onvif_socketserver.getsockname()[1]}", flush=True)
 
-    # Defer all cloud/NAT/P2P negotiation until a real client connects.
-    # The TCP listener remains open and the pending connection stays queued for
-    # the Rust engine, which receives the listener after authentication.
-    if os.getenv("P2P_LAZY_START", "false").lower() == "true":
-        print("P2P lazy mode: waiting for an RTSP or ONVIF client", flush=True)
-        ready, _, _ = select.select([socketserver, onvif_socketserver], [], [])
-        triggered = "RTSP" if socketserver in ready else "ONVIF"
-        print(f"P2P lazy mode: {triggered} client detected; starting P2P session", flush=True)
-
     if debug:
         subprocess.Popen(
             [
