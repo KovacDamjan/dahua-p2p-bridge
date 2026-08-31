@@ -9,6 +9,7 @@ on:
       - 'vendor-worker/**'
       - 'app/p2p_manager.py'
       - 'requirements.txt'
+      - 'docker-entrypoint.sh'
       - '.github/workflows/vendor-container.yml'
 
 permissions:
