@@ -13,7 +13,7 @@ services:
       DATABASE_PATH: /app/data/bridge.db
       P2P_BACKEND: vendor
       P2P_VENDOR_DLL_DIR: /vendor
-      WINEPREFIX: /app/data/wine
+      WINEPREFIX: /tmp/dahua-wine
       WINEDEBUG: -all
     volumes:
       - ./data:/app/data
