@@ -101,16 +101,7 @@ int main(int argc,char **argv) {
                 Sleep(1000);
             } else break;
         }
-        if(rc) {
-            // Some Dahua firmware rejects the ONVIF/HTTP P2P mapping with
-            // rc=17 even though RTSP is already connected. Do not tear down
-            // the working RTSP channel because an optional map failed.
-            if(maps[i].remote_port == 80) {
-                fprintf(stderr, "WARN optional ONVIF map failed rc=%d; keeping RTSP alive\\n", rc);
-                continue;
-            }
-            goto cleanup_error;
-        }
+        if(rc) goto cleanup_error;
         maps[i].connected=1;
         DWORD deadline=GetTickCount()+90000; int st=11;
         while(!stop_requested&&GetTickCount()<deadline) {
