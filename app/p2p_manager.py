@@ -102,7 +102,8 @@ class P2PManager:
         env = os.environ.copy()
         env.update(
             WINEDEBUG=os.getenv("WINEDEBUG", "-all"),
-            WINEPREFIX=os.getenv("WINEPREFIX", "/app/data/wine"),
+            WINEPREFIX=os.getenv("WINEPREFIX", "/tmp/dahua-wine"),
+            HOME=os.getenv("HOME", "/tmp"),
             P2P_VENDOR_DLL_DIR=os.getenv("P2P_VENDOR_DLL_DIR", "/vendor"),
             PYTHONUNBUFFERED="1",
         )
