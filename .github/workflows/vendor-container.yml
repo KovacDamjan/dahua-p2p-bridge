@@ -2,6 +2,14 @@ name: Build vendor container
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile.vendor'
+      - 'vendor-worker/**'
+      - 'app/p2p_manager.py'
+      - 'requirements.txt'
+      - '.github/workflows/vendor-container.yml'
 
 permissions:
   contents: read
