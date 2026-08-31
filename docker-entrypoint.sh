@@ -9,4 +9,8 @@ if [ "$#" -eq 0 ]; then
   set -- uvicorn app.main:app --host 0.0.0.0 --port 8095
 fi
 
+if [ "${P2P_BACKEND:-}" = "vendor" ]; then
+  exec "$@"
+fi
+
 exec gosu bridge "$@"
