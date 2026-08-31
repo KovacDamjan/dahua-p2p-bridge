@@ -11,7 +11,7 @@ services:
       APP_SECRET_KEY: change-this-secret
       ADMIN_PASSWORD: change-this-password
       DATABASE_PATH: /app/data/bridge.db
-      P2P_BACKEND: vendor
+      # Use the Python/Rust backend: it supports on-demand P2P startup.\n      # Set to vendor only for legacy SmartPSS DLL testing.\n      P2P_BACKEND: python
       P2P_VENDOR_DLL_DIR: /vendor
       WINEPREFIX: /tmp/dahua-wine
       WINEDEBUG: -all
