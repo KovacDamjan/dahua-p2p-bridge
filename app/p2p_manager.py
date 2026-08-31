@@ -119,7 +119,6 @@ class P2PManager:
             "--password", worker.password,
             "--dll-dir", "Z:\\vendor",
             "--map", f"554:{rtsp_port}",
-            "--map", "80:18080",
         ]
         process = subprocess.Popen(
             command, env=env, stdout=subprocess.PIPE,
@@ -127,17 +126,14 @@ class P2PManager:
         )
         state = ServiceState(process=process, service="rtsp")
         worker.services["rtsp"] = state
-        worker.services["onvif"] = ServiceState(process=process, service="onvif")
-        worker.logs.append("[P2P] Starting private Dahua P2PDll worker (RTSP + ONVIF)")
-        proxy = subprocess.Popen([
-            sys.executable, "-m", "app.onvif_proxy",
-            "--listen-port", str(onvif_port), "--upstream-port", "18080",
-            "--public-host", os.getenv("ONVIF_PUBLIC_HOST", "127.0.0.1")
-        ], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        worker.proxy_process = proxy
+        worker.logs.append("[P2P] Starting private Dahua P2PDll worker (RTSP only)")
         threading.Thread(
             target=self._read_output, args=(camera_id, worker, state), daemon=True
         ).start()
+        # The vendor DLL rejects the camera HTTP/ONVIF map with rc=17 on
+        # affected firmware. Run ONVIF through the maintained Python/Rust
+        # transport in its own independent P2P session instead.
+        self._start_service(camera_id, worker, "onvif")
 
     def _start_service(self, camera_id: int, worker: WorkerState, service: str) -> None:
         bind_port = worker.port if service == "rtsp" else self.onvif_port_for(camera_id)
