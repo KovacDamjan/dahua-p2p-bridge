@@ -155,6 +155,7 @@ class P2PManager:
             P2P_IDLE_RECONNECT_SECONDS=os.getenv(
                 "P2P_IDLE_RECONNECT_SECONDS", "0"
             ),
+            P2P_LAZY_START=os.getenv("P2P_LAZY_START", "true"),
             PYTHONUNBUFFERED="1",
         )
         command = [
