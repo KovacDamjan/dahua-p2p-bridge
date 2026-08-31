@@ -89,8 +89,47 @@ class P2PManager:
         )
         with self._lock:
             self._workers[camera_id] = worker
-        self._start_service(camera_id, worker, "rtsp")
+        if os.getenv("P2P_BACKEND", "").lower() == "vendor":
+            self._start_vendor_service(camera_id, worker)
+        else:
+            self._start_service(camera_id, worker, "rtsp")
         return worker
+
+    def _start_vendor_service(self, camera_id: int, worker: WorkerState) -> None:
+        """Start one Wine worker with both device ports on one P2P session."""
+        rtsp_port = worker.port
+        onvif_port = self.onvif_port_for(camera_id)
+        env = os.environ.copy()
+        env.update(
+            WINEDEBUG=os.getenv("WINEDEBUG", "-all"),
+            WINEPREFIX=os.getenv("WINEPREFIX", "/app/data/wine"),
+            P2P_VENDOR_DLL_DIR=os.getenv("P2P_VENDOR_DLL_DIR", "/vendor"),
+            PYTHONUNBUFFERED="1",
+        )
+        worker_path = os.getenv(
+            "P2P_VENDOR_WORKER", "/usr/local/lib/p2p_relay_multi.exe"
+        )
+        command = [
+            os.getenv("WINE_BIN", "wine"),
+            worker_path,
+            "--serial", worker.camera["serial"],
+            "--user", worker.camera["username"],
+            "--password", worker.password,
+            "--dll-dir", "Z:\\vendor",
+            "--map", f"554:{rtsp_port}",
+            "--map", f"80:{onvif_port}",
+        ]
+        process = subprocess.Popen(
+            command, env=env, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, bufsize=1
+        )
+        state = ServiceState(process=process, service="rtsp")
+        worker.services["rtsp"] = state
+        worker.services["onvif"] = ServiceState(process=process, service="onvif")
+        worker.logs.append("[P2P] Starting private Dahua P2PDll worker (RTSP + ONVIF)")
+        threading.Thread(
+            target=self._read_output, args=(camera_id, worker, state), daemon=True
+        ).start()
 
     def _start_service(self, camera_id: int, worker: WorkerState, service: str) -> None:
         bind_port = worker.port if service == "rtsp" else self.onvif_port_for(camera_id)
@@ -155,12 +194,22 @@ class P2PManager:
                 # Prefixing every line as RTSP made ONVIF traffic misleading.
                 worker.logs.append(f"[P2P] {line}")
                 worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
-                if "Ready to connect" in line:
+                if line.startswith("READY remote="):
+                    # The vendor worker emits one READY line per mapped port.
+                    parts = dict(item.split("=", 1) for item in line.split()[1:] if "=" in item)
+                    state.status = "online"
+                    state.last_error = None
+                    for service in worker.services.values():
+                        service.status = "online"
+                        service.last_error = None
+                    if parts.get("remote") == "554":
+                        state.online_since = time.monotonic()
+                elif "Ready to connect" in line:
                     state.status = "online"
                     state.last_error = None
                     if line == "Ready to connect!":
                         state.online_since = time.monotonic()
-                    if state.service == "rtsp" and "onvif" not in worker.services:
+                    if state.service == "rtsp" and "onvif" not in worker.services and os.getenv("P2P_BACKEND", "").lower() != "vendor":
                         worker.services["onvif"] = state
                         worker.logs.append(
                             "[ONVIF] Sharing the authenticated RTSP P2P session"

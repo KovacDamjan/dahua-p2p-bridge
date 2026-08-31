@@ -1,0 +1,20 @@
+services:
+  bridge-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.vendor
+    container_name: dahua-p2p-bridge
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: Europe/Ljubljana
+      APP_SECRET_KEY: change-this-secret
+      ADMIN_PASSWORD: change-this-password
+      DATABASE_PATH: /app/data/bridge.db
+      P2P_BACKEND: vendor
+      P2P_VENDOR_DLL_DIR: /vendor
+      WINEPREFIX: /app/data/wine
+      WINEDEBUG: -all
+    volumes:
+      - ./data:/app/data
+      - ./vendor/smartpss:/vendor:ro
