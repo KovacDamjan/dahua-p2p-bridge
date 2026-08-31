@@ -81,7 +81,7 @@ int main(int argc,char **argv) {
         DWORD deadline=GetTickCount()+90000; int st=11;
         while(!stop_requested&&GetTickCount()<deadline) {
             st=P2P_QueryChannelStatus(type,handle,maps[i].local_port);
-            if(st==0) break; if(st!=1&&st!=11) { fprintf(stderr,"ERROR invalid channel status remote=%d status=%d\n",maps[i].remote_port,st); goto cleanup_error; }
+            if(st==0||st==1) break; if(st!=11) { fprintf(stderr,"ERROR invalid channel status remote=%d status=%d\n",maps[i].remote_port,st); goto cleanup_error; }
             Sleep(200);
         }
         if(st!=0) { fprintf(stderr,"ERROR channel ready timeout remote=%d status=%d\n",maps[i].remote_port,st); goto cleanup_error; }
