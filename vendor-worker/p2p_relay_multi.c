@@ -101,7 +101,13 @@ int main(int argc,char **argv) {
                 Sleep(1000);
             } else break;
         }
-        if(rc) goto cleanup_error;
+        if(rc) {
+            if(maps[i].remote_port==80) {
+                fprintf(stderr,"WARN optional ONVIF channel unavailable remote=80 rc=%d; continuing\\n",rc);
+                continue;
+            }
+            goto cleanup_error;
+        }
         maps[i].connected=1;
         DWORD deadline=GetTickCount()+90000; int st=11;
         while(!stop_requested&&GetTickCount()<deadline) {
