@@ -102,7 +102,12 @@ class P2PManager:
         env.update(
             P2P_USERNAME=worker.camera["username"],
             P2P_PASSWORD=worker.password,
-            P2P_IDLE_RECONNECT_SECONDS="60",
+            # An idle PTCP session is valid.  Outbound heartbeats keep the NAT
+            # mapping alive, while some cameras send no reply until an RTSP or
+            # ONVIF client is active.  Reconnect only on an actual socket error.
+            P2P_IDLE_RECONNECT_SECONDS=os.getenv(
+                "P2P_IDLE_RECONNECT_SECONDS", "0"
+            ),
             PYTHONUNBUFFERED="1",
         )
         command = [

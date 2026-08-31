@@ -26,7 +26,7 @@ SESSION_COOKIE = "bridge_session"
 SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(30 * 24 * 60 * 60)))
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
-app = FastAPI(title="Dahua P2P Bridge", version="0.4.17")
+app = FastAPI(title="Dahua P2P Bridge", version="0.4.18")
 security = HTTPBasic(auto_error=False)
 p2p_manager = P2PManager()
 

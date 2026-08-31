@@ -455,7 +455,7 @@ fn idle_reconnect_seconds() -> u64 {
         std::env::var("P2P_IDLE_RECONNECT_SECONDS")
             .ok()
             .and_then(|value| value.parse().ok())
-            .unwrap_or(60)
+            .unwrap_or(0)
     })
 }
 
@@ -526,9 +526,11 @@ impl PTCP for UdpSocket {
                     if idle_limit == 0
                         || recovery_started.elapsed() < Duration::from_secs(idle_limit) =>
                 {
-                    eprintln!(
-                        "PTCP receive idle for 15 seconds; preserving the active session"
-                    );
+                    if packet_debug_enabled() {
+                        eprintln!(
+                            "PTCP receive idle for 15 seconds; preserving the active session"
+                        );
+                    }
                     continue;
                 }
                 Err(_) => {
