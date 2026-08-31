@@ -14,7 +14,7 @@ async def handle(client, upstream_host, upstream_port, public_host, public_port)
         if body_sep >= 0:
             head, body = response[:body_sep], response[body_sep + 4:]
             body_text = body.decode("utf-8", errors="replace")
-            body_text = re.sub(r"http://[^/\\s<>"]+:80", f"http://{public_host}:{public_port}", body_text)
+            body_text = re.sub(r'http://[^/\\s<>" ]+:80', f"http://{public_host}:{public_port}", body_text)
             body_text = re.sub(r"https?://(?:192\\.168\\.[0-9.]+|10\\.[0-9.]+|172\\.(?:1[6-9]|2[0-9]|3[0-1])\\.[0-9.]+)(?::\\d+)?", f"http://{public_host}:{public_port}", body_text)
             body = body_text.encode("utf-8")
             head = re.sub(br"Content-Length:\\s*\\d+", f"Content-Length: {len(body)}".encode(), head, count=1, flags=re.I)
