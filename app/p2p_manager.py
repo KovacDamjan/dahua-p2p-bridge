@@ -79,6 +79,9 @@ class P2PManager:
     def onvif_port_for(self, camera_id: int) -> int:
         return self.port_for(camera_id) + 1000
 
+    def sdk_port_for(self, camera_id: int) -> int:
+        return 17777 + camera_id - 1
+
     def start(self, camera: dict, password: str) -> WorkerState:
         camera_id = int(camera["id"])
         self.stop(camera_id)
@@ -120,6 +123,7 @@ class P2PManager:
             "--dll-dir", "Z:\\vendor",
             "--map", f"554:{rtsp_port}",
             "--map", "80:18080",
+            "--map", f"37777:{self.sdk_port_for(camera_id)}",
         ]
         process = subprocess.Popen(
             command, env=env, stdout=subprocess.PIPE,
