@@ -83,8 +83,24 @@ int main(int argc,char **argv) {
             if(rc) goto cleanup_error;
         }
         int requested=maps[i].local_port;
-        rc=P2P_Connect(type,map_handles[i],serial,maps[i].remote_port,&maps[i].local_port,user,password,salt,version);
-        printf("INFO connect remote=%d requested_local=%d rc=%d local=%d\n",maps[i].remote_port,requested,rc,maps[i].local_port);
+        for(int attempt=1;attempt<=3;attempt++) {
+            rc=P2P_Connect(type,map_handles[i],serial,maps[i].remote_port,&maps[i].local_port,user,password,salt,version);
+            printf("INFO connect remote=%d requested_local=%d attempt=%d rc=%d local=%d\n",maps[i].remote_port,requested,attempt,rc,maps[i].local_port);
+            if(!rc) break;
+            if(rc==17 && attempt<3) {
+                fprintf(stderr,"WARN connect rc=17; recreating P2P handle\n");
+                if(map_handles[i]) P2P_UnInit(type,map_handles[i]);
+                map_handles[i]=NULL;
+                Sleep(3000);
+                rc=P2P_Init(type,server,8800,"996103384cdf19179e19243e959bbf8b","cba1b29e32cb17aa46b8ff9e73c7f40b",&map_handles[i],"Client/SmartPSS_Win");
+                printf("INFO P2P_Init retry map=%d rc=%d\n",i,rc);
+                if(rc||!map_handles[i]) break;
+                rc=P2P_DeviceStatus(type,map_handles[i],serial);
+                printf("INFO device_status retry map=%d status=%d\n",i,rc);
+                if(rc) break;
+                Sleep(1000);
+            } else break;
+        }
         if(rc) goto cleanup_error;
         maps[i].connected=1;
         DWORD deadline=GetTickCount()+90000; int st=11;
