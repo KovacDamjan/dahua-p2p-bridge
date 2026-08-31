@@ -12,7 +12,7 @@ use tokio::{
 
 use crate::{
     process::{dh_reader, dh_writer, process_reader, process_writer, HttpRewriteConfig},
-    ptcp::{PTCPEvent, PTCPSession},
+    ptcp::{PTCPEvent, PTCPSession, PTCP},
 };
 
 mod process;
@@ -178,6 +178,27 @@ async fn main() {
         conn_channels.clone(),
         onvif_realm.clone(),
     ));
+
+    let retransmit_session = session.clone();
+    let retransmit_socket = socket.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let packets = retransmit_session
+                .lock()
+                .unwrap()
+                .due_retransmissions();
+            if !packets.is_empty() {
+                eprintln!(
+                    "Retransmitting {} unacknowledged PTCP packet(s)",
+                    packets.len()
+                );
+            }
+            for packet in packets {
+                retransmit_socket.ptcp_request(packet).await;
+            }
+        }
+    });
 
     let heartbeat_tx = dh_tx.clone();
     tokio::spawn(async move {
