@@ -244,7 +244,20 @@ def main(
     main_remote.rhost = main_server
     main_remote.rport = main_port
 
-    # Match SmartPSS channel negotiation fields, including NatValueT and SDK version.
+    # Match SmartPSS channel negotiation fields and XML order.
+    def field(name):
+        return auth.split(f"<{name}>", 1)[1].split(f"</{name}>", 1)[0]
+
+    p2p_channel_body = (
+        f"<body><CreateDate>{field('CreateDate')}</CreateDate>"
+        f"<DevAuth>{field('DevAuth')}</DevAuth>"
+        f"<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
+        f"<IpEncrptV2>true</IpEncrptV2><NatValueT>268435455</NatValueT>"
+        f"<Nonce>{field('Nonce')}</Nonce><RandSalt>{randsalt}</RandSalt>"
+        f"<UserName>{username}</UserName><version>6.7.15</version>"
+        f"<sVersion>1.1.0</sVersion><LocalAddr>{laddr}</LocalAddr>"
+        f"<Pid>0</Pid></body>"
+    )
     channel_remote = main_remote
     p2p_channel_body = (
         f"<body>{auth}<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
