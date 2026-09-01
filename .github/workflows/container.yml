@@ -52,6 +52,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha
+            type=sha,prefix=build-,format=short
       - uses: docker/build-push-action@v6
         with:
           context: .
