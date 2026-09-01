@@ -205,12 +205,16 @@ def main(
 
     if not randsalt:
         raise ConnectionError("Device did not provide authentication salt")
-    else:
-        key = get_key(username, password, randsalt)
-        nonce = get_nonce()
 
-        # SmartPSS encrypts a fixed 64-byte LocalAddr structure, not only the\n        # visible address text. Without this padding the cloud silently ignores\n        # the p2p-channel request.\n        laddr = get_enc(key, nonce, laddr.ljust(64, "\\x00"))\n        ipaddr = f"<IpEncrptV2>true</IpEncrptV2><LocalAddr>{laddr}</LocalAddr>"
-        auth = get_auth(username, key, nonce, randsalt, laddr)
+    key = get_key(username, password, randsalt)
+    nonce = get_nonce()
+
+    # SmartPSS sends an encrypted, fixed 64-byte LocalAddr field.
+    local_addr_plain = laddr.encode("ascii").ljust(64, b"\\x00")
+    laddr = get_enc(key, nonce, local_addr_plain.decode("latin1"))
+    ipaddr = f"<IpEncrptV2>true</IpEncrptV2><LocalAddr>{laddr}</LocalAddr>"
+    print(f"CHANNEL: IpEncrptV2=true LocalAddrLen={len(laddr)}", flush=True)
+    auth = get_auth(username, key, nonce, randsalt, laddr)
 
     # Match SmartPSS channel negotiation fields, including NatValueT and SDK version.
     p2p_channel_body = (
