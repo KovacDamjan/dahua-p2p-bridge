@@ -47,7 +47,7 @@ int main(int argc,char **argv) {
     const char *user=arg_value(argc,argv,"--user",getenv("DAHUA_DEVICE_USER"));
     const char *password=arg_value(argc,argv,"--password",getenv("DAHUA_DEVICE_PASS"));
     const char *dll_dir=arg_value(argc,argv,"--dll-dir","Z:\\vendor");
-    const char *server=arg_value(argc,argv,"--server","www.easy4ipcloud.com");
+    const char *server=arg_value(argc,argv,"--server",getenv("P2P_VENDOR_SERVER") ? getenv("P2P_VENDOR_SERVER") : "p2p.dolynkcloud.com");
     PortMap maps[8]; int map_count=parse_maps(argc,argv,maps,8);
     if(!serial||!user||!password||map_count==0) { fprintf(stderr,"ERROR invalid arguments\n"); return 2; }
     signal(SIGINT,on_signal); signal(SIGTERM,on_signal); SetConsoleCtrlHandler(on_console,TRUE);
