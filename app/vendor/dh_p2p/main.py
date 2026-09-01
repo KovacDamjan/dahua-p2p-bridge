@@ -200,6 +200,7 @@ def main(
 
     laddr = f"127.0.0.1:{device_remote.lport}"
     auth = ""
+    ipaddr = ""
     aid = random.randbytes(8)
 
     if randsalt:
