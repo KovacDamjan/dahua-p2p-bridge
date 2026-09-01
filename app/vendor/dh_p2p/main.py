@@ -264,52 +264,56 @@ def main(
         f"<sVersion>1.1.0</sVersion><LocalAddr>{laddr}</LocalAddr>"
         f"<Pid>0</Pid></body>"
     )
-    channel_remote = main_remote
-    pcs_request_id = __import__("uuid").uuid4().hex
-    print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
-    channel_remote.rhost = ds_server
-    channel_remote.rport = ds_port
-    print(f"CHANNEL: requesting via DS {ds_server}:{ds_port}", flush=True)
-    channel_remote.request(
-        f"/device/{serial}/p2p-channel",
-        p2p_channel_body,
-        should_read=False,
-        pcs_request_id=pcs_request_id,
-    )
-
-    res = None
-    last_channel_error = None
-    channel_attempts = 5
-    for attempt in range(1, channel_attempts + 1):
-        if attempt > 1:
-            print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
-            channel_remote.request(
-                f"/device/{serial}/p2p-channel",
-                p2p_channel_body,
-                should_read=False,
-                pcs_request_id=pcs_request_id,
-            )
-        channel_remote.settimeout(45)
-        try:
-            res = channel_remote.read(return_error=True)
-            # Easy4IP may emit more than one provisional 100 Trying response
-            # for the same channel request.  Continue until the final HTTP
-            # response instead of treating the second 1xx body as channel data.
-            while res["code"] < 200:
-                res = channel_remote.read(return_error=True)
-            break
-        except (OSError, socket.timeout) as error:
-            last_channel_error = error
-            print(f"P2P channel attempt {attempt}/{channel_attempts} failed: {error}", flush=True)
-            res = None
-        finally:
-            channel_remote.settimeout(None)
-
-    if res is None:
-        raise ConnectionError(
-            f"Easy4IP did not return P2P channel details after {channel_attempts} attempts: "
-            f"{last_channel_error}"
+    if transport == "relay":
+        # Relay transport does not require the direct device channel response.
+        # The relay-channel negotiation below creates the authenticated PTCP
+        # session and hands it to the Rust engine.
+        print("CHANNEL: relay-only mode; skipping direct p2p-channel", flush=True)
+        res = {
+            "code": 200,
+            "data": {"body": {"LocalAddr": "127.0.0.1:0", "PubAddr": "127.0.0.1:0"}},
+        }
+    else:
+        pcs_request_id = __import__("uuid").uuid4().hex
+        print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
+        channel_remote.rhost = ds_server
+        channel_remote.rport = ds_port
+        print(f"CHANNEL: requesting via DS {ds_server}:{ds_port}", flush=True)
+        channel_remote.request(
+            f"/device/{serial}/p2p-channel",
+            p2p_channel_body,
+            should_read=False,
+            pcs_request_id=pcs_request_id,
         )
+
+        res = None
+        last_channel_error = None
+        channel_attempts = 5
+        for attempt in range(1, channel_attempts + 1):
+            if attempt > 1:
+                print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
+                channel_remote.request(
+                    f"/device/{serial}/p2p-channel",
+                    p2p_channel_body,
+                    should_read=False,
+                    pcs_request_id=pcs_request_id,
+                )
+            channel_remote.settimeout(45)
+            try:
+                res = channel_remote.read(return_error=True)
+                # Easy4IP may emit more than one provisional 100 Trying response
+                # for the same channel request.  Continue until the final HTTP
+                # response instead of treating the second 1xx body as channel data.
+                while res["code"] < 200:
+                    res = channel_remote.read(return_error=True)
+                break
+            except (OSError, socket.timeout) as error:
+                last_channel_error = error
+                print(f"P2P channel attempt {attempt}/{channel_attempts} failed: {error}", flush=True)
+                res = None
+            finally:
+                channel_remote.settimeout(None)
+
 
     if res["code"] >= 400:
         print("Error:", res["status"])
