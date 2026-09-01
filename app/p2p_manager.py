@@ -162,7 +162,7 @@ class P2PManager:
             "--public-rtsp-port",
             str(worker.port),
             "--transport",
-            "direct",
+            "relay",
             worker.camera["serial"],
         ]
         process = subprocess.Popen(
