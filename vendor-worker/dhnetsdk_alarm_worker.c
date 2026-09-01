@@ -7,8 +7,9 @@ typedef LONGLONG LLONG;
 typedef BOOL (WINAPI *PFN_INIT)(void);
 typedef void (WINAPI *PFN_CLEANUP)(void);
 typedef void (WINAPI *PFN_SET_CB)(void *callback, ULONGLONG user);
-typedef LLONG (WINAPI *PFN_LOGIN)(const char *ip, unsigned short port,
-    const char *user, const char *password, void *device_info, int *error);
+typedef LLONG (WINAPI *PFN_LOGINEX)(const char *ip, unsigned short port,
+    const char *user, const char *password, int spec_cap, void *cap_param,
+    void *device_info, int *error);
 typedef BOOL (WINAPI *PFN_START_LISTEN)(LLONG login_id);
 typedef BOOL (WINAPI *PFN_STOP_LISTEN)(LLONG login_id);
 typedef BOOL (WINAPI *PFN_LOGOUT)(LLONG login_id);
@@ -47,7 +48,7 @@ int main(int argc, char **argv) {
     PFN_INIT init = (PFN_INIT)GetProcAddress(sdk, "CLIENT_Init");
     PFN_CLEANUP cleanup = (PFN_CLEANUP)GetProcAddress(sdk, "CLIENT_Cleanup");
     PFN_SET_CB set_cb = (PFN_SET_CB)GetProcAddress(sdk, "CLIENT_SetDVRMessCallBack");
-    PFN_LOGIN login = (PFN_LOGIN)GetProcAddress(sdk, "CLIENT_Login");
+    PFN_LOGINEX login = (PFN_LOGINEX)GetProcAddress(sdk, "CLIENT_LoginEx");
     PFN_START_LISTEN start = (PFN_START_LISTEN)GetProcAddress(sdk, "CLIENT_StartListenEx");
     PFN_STOP_LISTEN stop = (PFN_STOP_LISTEN)GetProcAddress(sdk, "CLIENT_StopListen");
     PFN_LOGOUT logout = (PFN_LOGOUT)GetProcAddress(sdk, "CLIENT_Logout");
@@ -62,7 +63,8 @@ int main(int argc, char **argv) {
 
     unsigned char device_info[4096] = {0};
     int error = 0;
-    LLONG id = login(ip, port, user, password, device_info, &error);
+    /* 19 = private penetrating/P2P login according to dhnetsdk.h. */
+    LLONG id = login(ip, port, user, password, 19, NULL, device_info, &error);
     printf("LOGIN id=%lld error=%d local=%s:%u\n", id, error, ip, port);
     if (!id) { cleanup(); FreeLibrary(sdk); return 5; }
 
