@@ -283,6 +283,7 @@ def main(
                 f"/device/{serial}/p2p-channel",
                 p2p_channel_body,
                 should_read=False,
+                pcs_request_id=pcs_request_id,
             )
         channel_remote.settimeout(45)
         try:
