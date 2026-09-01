@@ -10,6 +10,7 @@ import random
 import socket
 import sys
 import time
+import uuid
 from struct import pack, unpack
 
 import xmltodict
@@ -320,6 +321,8 @@ X-Sversion: 1.1.0
 X-ToUType: Client/SmartPSS_Win
 CSeq: {CSEQ}
 """
+        if body and "p2p-channel" in path:
+            req = req.replace("X-ToUType: Client/SmartPSS_Win\n", f"x-pcs-request-id: {uuid.uuid4().hex}\nX-ToUType: Client/SmartPSS_Win\n")
         if auth:
             req += f"""Authorization: WSSE profile="UsernameToken"
 X-WSSE: UsernameToken Username="{USERNAME}", PasswordDigest="{digest}", Nonce="{nonce}", Created="{curdate}"
