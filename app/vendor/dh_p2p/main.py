@@ -198,7 +198,17 @@ def main(
 
     device_remote = UDP(main_server, main_port, debug)
 
-    laddr = f"127.0.0.1:{device_remote.lport}"
+    # Advertise the NAS LAN address to Easy4IP. 127.0.0.1 is only a
+    # local bind address and causes the cloud to silently discard the channel
+    # request because it cannot route the returned channel to loopback.
+    route_probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        route_probe.connect((main_server, main_port))
+        advertise_ip = route_probe.getsockname()[0]
+    finally:
+        route_probe.close()
+    laddr = f"{advertise_ip}:{device_remote.lport}"
+    print(f"CHANNEL: advertising LocalAddr {laddr}", flush=True)
     auth = ""
     ipaddr = ""
     aid = random.randbytes(8)
