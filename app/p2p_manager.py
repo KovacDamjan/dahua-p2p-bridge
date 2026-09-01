@@ -124,6 +124,11 @@ class P2PManager:
             "--map", f"554:{rtsp_port}",
             "--map", "80:18080",
         ]
+        if os.getenv("P2P_ENABLE_DAHUA_SDK_PORT", "0").lower() in ("1", "true", "yes"):
+            command.extend(["--map", f"37777:{self.sdk_port_for(camera_id)}"])
+            worker.logs.append(
+                f"[P2P] Optional Dahua SDK port enabled: {self.sdk_port_for(camera_id)}"
+            )
         process = subprocess.Popen(
             command, env=env, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, bufsize=1
