@@ -215,8 +215,7 @@ def main(
     p2p_channel_body = (
         f"<body>{auth}<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
         f"{ipaddr}<NatValueT>268435455</NatValueT>"
-        f"<Nonce>{nonce}</Nonce><RandSalt>{randsalt}</RandSalt>"
-        f"<UserName>{username}</UserName><version>6.7.15</version>"
+        f"<version>6.7.15</version>"
         f"<sVersion>1.1.0</sVersion><Pid>0</Pid></body>"
     )
     device_remote.request(
