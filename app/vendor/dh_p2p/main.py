@@ -259,6 +259,9 @@ def main(
         f"<Pid>0</Pid></body>"
     )
     channel_remote = main_remote
+    channel_remote.rhost = p2psrv_server
+    channel_remote.rport = p2psrv_port
+    print(f"CHANNEL: requesting via DS {p2psrv_server}:{p2psrv_port}", flush=True)
     channel_remote.request(
         f"/device/{serial}/p2p-channel",
         p2p_channel_body,
