@@ -137,6 +137,8 @@ def main(
 
     res = main_remote.request(f"/online/p2psrv/{serial}")
 
+    ds_server, ds_port = res["data"]["body"]["DS"].split(":")
+    ds_port = int(ds_port)
     p2psrv_server, p2psrv_port = res["data"]["body"]["US"].split(":")
     p2psrv_port = int(p2psrv_port)
 
@@ -259,9 +261,9 @@ def main(
         f"<Pid>0</Pid></body>"
     )
     channel_remote = main_remote
-    channel_remote.rhost = p2psrv_server
-    channel_remote.rport = p2psrv_port
-    print(f"CHANNEL: requesting via DS {p2psrv_server}:{p2psrv_port}", flush=True)
+    channel_remote.rhost = ds_server
+    channel_remote.rport = ds_port
+    print(f"CHANNEL: requesting via DS {ds_server}:{ds_port}", flush=True)
     channel_remote.request(
         f"/device/{serial}/p2p-channel",
         p2p_channel_body,
