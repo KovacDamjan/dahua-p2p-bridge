@@ -389,6 +389,8 @@ def main(
 
     relay_nat_response = None
     last_relay_error = None
+    relay_pcs_request_id = __import__("uuid").uuid4().hex
+    print(f"RELAY: PCS request id {relay_pcs_request_id}", flush=True)
     for attempt in range(1, 4):
         if randsalt:
             auth = get_auth(username, key, nonce, randsalt)
@@ -399,6 +401,7 @@ def main(
             f"/device/{serial}/relay-channel",
             f"<body>{auth}<agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
             should_read=False,
+            pcs_request_id=relay_pcs_request_id,
         )
         main_remote.rhost = agent_server
         main_remote.rport = agent_port
