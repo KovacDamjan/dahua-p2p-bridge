@@ -211,10 +211,7 @@ def main(
         ipaddr = f"<IpEncrptV2>true</IpEncrptV2><LocalAddr>{laddr}</LocalAddr>"
         auth = "" if dtype == 0 else get_auth(username, key, nonce, randsalt, laddr)
 
-    p2p_channel_body = (
-        f"<body>{auth}<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
-        f"{ipaddr}<version>5.0.0</version></body>"
-    )
+    # Match SmartPSS channel negotiation fields, including NatValueT and SDK version.\n    p2p_channel_body = (\n        f\"<body>{auth}<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>\"\n        f\"{ipaddr}<NatValueT>268435455</NatValueT>\"\n        f\"<Nonce>{nonce}</Nonce><RandSalt>{randsalt}</RandSalt>\"\n        f\"<UserName>{username}</UserName><version>6.7.15</version>\"\n        f\"<sVersion>1.1.0</sVersion><Pid>0</Pid></body>\"\n    )
     device_remote.request(
         f"/device/{serial}/p2p-channel",
         p2p_channel_body,
