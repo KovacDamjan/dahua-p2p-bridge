@@ -318,7 +318,7 @@ class UDP(socket.socket):
 CSeq: {CSEQ}
 """
         if body and "p2p-channel" in path:
-            req += "X-Version: 6.7.15\\nX-Sversion: 1.1.0\\n"
+            req += "X-Version: 6.7.15\nX-Sversion: 1.1.0\n"
         if auth:
             req += f"""Authorization: WSSE profile="UsernameToken"
 X-WSSE: UsernameToken Username="{USERNAME}", PasswordDigest="{digest}", Nonce="{nonce}", Created="{curdate}"
