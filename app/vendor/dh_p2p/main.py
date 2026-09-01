@@ -836,7 +836,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--service", choices=("both", "rtsp", "onvif"), default="both")
     parser.add_argument("--public-rtsp-port", type=int)
-    parser.add_argument("--transport", choices=("direct", "relay"), default="direct")
+    parser.add_argument("--transport", choices=("direct", "relay"), default=os.getenv("P2P_TRANSPORT", "direct"))
     parser.add_argument("-t", "--type", type=int, help="Type of the camera", default=0)
     parser.add_argument("-u", "--username", help="Username of the camera")
     parser.add_argument("-p", "--password", help="Password of the camera")
