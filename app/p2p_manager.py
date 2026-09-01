@@ -123,7 +123,6 @@ class P2PManager:
             "--dll-dir", "Z:\\vendor",
             "--map", f"554:{rtsp_port}",
             "--map", "80:18080",
-            "--map", f"37777:{self.sdk_port_for(camera_id)}",
         ]
         process = subprocess.Popen(
             command, env=env, stdout=subprocess.PIPE,
@@ -211,9 +210,12 @@ class P2PManager:
                     parts = dict(item.split("=", 1) for item in line.split()[1:] if "=" in item)
                     state.status = "online"
                     state.last_error = None
-                    for service in worker.services.values():
-                        service.status = "online"
-                        service.last_error = None
+                    if parts.get("remote") == "554":
+                        state.status = "online"
+                        state.last_error = None
+                    elif parts.get("remote") == "80" and "onvif" in worker.services:
+                        worker.services["onvif"].status = "online"
+                        worker.services["onvif"].last_error = None
                     if parts.get("remote") == "554":
                         state.online_since = time.monotonic()
                 elif "Ready to connect" in line:
@@ -226,6 +228,10 @@ class P2PManager:
                         worker.logs.append(
                             "[ONVIF] Sharing the authenticated RTSP P2P session"
                         )
+                elif "optional ONVIF channel unavailable" in line:
+                    if "onvif" in worker.services:
+                        worker.services["onvif"].status = "error"
+                        worker.services["onvif"].last_error = "P2P port 80 unavailable"
                 elif "Error:" in line or "Traceback" in line:
                     state.last_error = line
 
