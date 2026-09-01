@@ -246,7 +246,8 @@ def main(
     agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
     main_remote.rhost = agent_server
     main_remote.rport = int(agent_port)
-    main_remote.request(f"/relay/start/{token}", "<body><Client>:0</Client></body>")
+    relay_pcs_request_id = __import__("uuid").uuid4().hex
+    main_remote.request(f"/relay/start/{token}", "<body><Client>:0</Client></body>", pcs_request_id=relay_pcs_request_id)
     main_remote.rhost = main_server
     main_remote.rport = main_port
 
@@ -379,6 +380,7 @@ def main(
     main_remote.request(
         f"/relay/start/{token}",
         "<body><Client>:0</Client></body>",
+        pcs_request_id=relay_pcs_request_id,
     )
 
     main_remote.rhost = main_server
@@ -389,7 +391,6 @@ def main(
 
     relay_nat_response = None
     last_relay_error = None
-    relay_pcs_request_id = __import__("uuid").uuid4().hex
     print(f"RELAY: PCS request id {relay_pcs_request_id}", flush=True)
     for attempt in range(1, 4):
         if randsalt:
