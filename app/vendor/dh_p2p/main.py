@@ -203,7 +203,9 @@ def main(
     ipaddr = ""
     aid = random.randbytes(8)
 
-    if randsalt:
+    if not randsalt:
+        raise ConnectionError("Device did not provide authentication salt")
+    else:
         key = get_key(username, password, randsalt)
         nonce = get_nonce()
 
