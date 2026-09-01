@@ -199,7 +199,6 @@ def main(
     device_remote = UDP(main_server, main_port, debug)
 
     laddr = f"127.0.0.1:{device_remote.lport}"
-    ipaddr = f"<IpEncrpt>true</IpEncrpt><LocalAddr>{laddr}</LocalAddr>"
     auth = ""
     aid = random.randbytes(8)
 
