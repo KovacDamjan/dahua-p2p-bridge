@@ -203,7 +203,7 @@ def main(
     auth = ""
     aid = random.randbytes(8)
 
-    if dtype > 0:
+    if username and password and randsalt:
         key = get_key(username, password, randsalt)
         nonce = get_nonce()
 
@@ -286,7 +286,7 @@ def main(
             )
         nonce = response_nonce
         device_laddr = get_dec(key, nonce, device_laddr)
-    elif dtype > 0:
+    elif username and password and randsalt:
         # Some firmware returns IpEncrpt=false and an already-plain LocalAddr.
         # Such a response legitimately has no Nonce; keep the nonce generated
         # for DevAuth and do not attempt to decrypt the address.
@@ -324,13 +324,13 @@ def main(
     main_remote.rhost = main_server
     main_remote.rport = main_port
 
-    if dtype > 0:
+    if username and password and randsalt:
         auth = get_auth(username, key, nonce, randsalt)
 
     relay_nat_response = None
     last_relay_error = None
     for attempt in range(1, 4):
-        if dtype > 0:
+        if username and password and randsalt:
             auth = get_auth(username, key, nonce, randsalt)
         main_remote.rhost = main_server
         main_remote.rport = main_port
@@ -459,7 +459,7 @@ def main(
     print("".join(f"\\x{b:02X}" for b in data))
     device_remote.send(data)
 
-    if dtype > 0:
+    if username and password and randsalt:
         data = device_remote.recv()
         print("Data <<<")
         print("".join(f"\\x{b:02X}" for b in data))
