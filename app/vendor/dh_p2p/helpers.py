@@ -313,9 +313,12 @@ class UDP(socket.socket):
         hash_digest.update(pwd.encode())
         digest = base64.b64encode(hash_digest.digest()).decode()
 
-        req = f"""{'DHPOST' if body else 'DHGET'} {path} HTTP/1.1
+        method = "2NFPOST" if body and "p2p-channel" in path else ("DHPOST" if body else "DHGET")
+        req = f"""{method} {path} HTTP/1.1
 CSeq: {CSEQ}
 """
+        if body and "p2p-channel" in path:
+            req += "X-Version: 6.7.15\\nX-Sversion: 1.1.0\\n"
         if auth:
             req += f"""Authorization: WSSE profile="UsernameToken"
 X-WSSE: UsernameToken Username="{USERNAME}", PasswordDigest="{digest}", Nonce="{nonce}", Created="{curdate}"
