@@ -261,6 +261,8 @@ def main(
         f"<Pid>0</Pid></body>"
     )
     channel_remote = main_remote
+    pcs_request_id = __import__("uuid").uuid4().hex
+    print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
     channel_remote.rhost = ds_server
     channel_remote.rport = ds_port
     print(f"CHANNEL: requesting via DS {ds_server}:{ds_port}", flush=True)
@@ -268,6 +270,7 @@ def main(
         f"/device/{serial}/p2p-channel",
         p2p_channel_body,
         should_read=False,
+        pcs_request_id=pcs_request_id,
     )
 
     res = None
