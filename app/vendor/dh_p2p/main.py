@@ -208,7 +208,7 @@ def main(
         nonce = get_nonce()
 
         # SmartPSS encrypts a fixed 64-byte LocalAddr structure, not only the\n        # visible address text. Without this padding the cloud silently ignores\n        # the p2p-channel request.\n        laddr = get_enc(key, nonce, laddr.ljust(64, "\\x00"))\n        ipaddr = f"<IpEncrptV2>true</IpEncrptV2><LocalAddr>{laddr}</LocalAddr>"
-        auth = "" if dtype == 0 else get_auth(username, key, nonce, randsalt, laddr)
+        auth = get_auth(username, key, nonce, randsalt, laddr)
 
     # Match SmartPSS channel negotiation fields, including NatValueT and SDK version.
     p2p_channel_body = (
