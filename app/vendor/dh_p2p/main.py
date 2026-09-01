@@ -399,7 +399,8 @@ def main(
         print(f"Requesting relay channel (attempt {attempt}/3)", flush=True)
         main_remote.request(
             f"/device/{serial}/relay-channel",
-            f"<body>{auth}<agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
+            f"<body>{auth}<sVersion>1.1.0</sVersion>"
+            f"<agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
             should_read=False,
             pcs_request_id=relay_pcs_request_id,
         )
