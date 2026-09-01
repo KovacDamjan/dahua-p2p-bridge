@@ -210,7 +210,7 @@ def main(
     nonce = get_nonce()
 
     # SmartPSS sends an encrypted, fixed 64-byte LocalAddr field.
-    local_addr_plain = laddr.encode("ascii").ljust(64, b"\\x00")
+    local_addr_plain = laddr.encode("ascii").ljust(64, bytes([0]))
     laddr = get_enc(key, nonce, local_addr_plain.decode("latin1"))
     ipaddr = f"<IpEncrptV2>true</IpEncrptV2><LocalAddr>{laddr}</LocalAddr>"
     print(f"CHANNEL: IpEncrptV2=true LocalAddrLen={len(laddr)}", flush=True)
