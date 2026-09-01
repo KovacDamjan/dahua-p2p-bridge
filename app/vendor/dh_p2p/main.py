@@ -226,6 +226,24 @@ def main(
     print(f"CHANNEL: IpEncrptV2=true LocalAddrLen={len(laddr)}", flush=True)
     auth = get_auth(username, key, nonce, randsalt, laddr)
 
+    # SmartPSS registers a relay agent before requesting the P2P channel.
+    # Without this ordering Easy4IP accepts the UDP request but never returns
+    # LocalAddr/PubAddr.
+    main_remote.rhost = main_server
+    main_remote.rport = main_port
+    relay_res = main_remote.request("/online/relay")
+    relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
+    main_remote.rhost = relay_server
+    main_remote.rport = int(relay_port)
+    agent_res = main_remote.request("/relay/agent")
+    token = agent_res["data"]["body"]["Token"]
+    agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
+    main_remote.rhost = agent_server
+    main_remote.rport = int(agent_port)
+    main_remote.request(f"/relay/start/{token}", "<body><Client>:0</Client></body>")
+    main_remote.rhost = main_server
+    main_remote.rport = main_port
+
     # Match SmartPSS channel negotiation fields, including NatValueT and SDK version.
     p2p_channel_body = (
         f"<body>{auth}<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
