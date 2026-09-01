@@ -302,7 +302,7 @@ class UDP(socket.socket):
 
         return res
 
-    def request(self, path, body="", auth=True, should_read=True):
+    def request(self, path, body="", auth=True, should_read=True, pcs_request_id=None):
         global CSEQ
         CSEQ += 1
         request_cseq = CSEQ
@@ -322,7 +322,7 @@ X-ToUType: Client/SmartPSS_Win
 CSeq: {CSEQ}
 """
         if body and "p2p-channel" in path:
-            req = req.replace("X-ToUType: Client/SmartPSS_Win\n", f"x-pcs-request-id: {uuid.uuid4().hex}\nX-ToUType: Client/SmartPSS_Win\n")
+            req = req.replace("X-ToUType: Client/SmartPSS_Win\n", f"x-pcs-request-id: {pcs_request_id or uuid.uuid4().hex}\nX-ToUType: Client/SmartPSS_Win\n")
         if auth:
             req += f"""Authorization: WSSE profile="UsernameToken"
 X-WSSE: UsernameToken Username="{USERNAME}", PasswordDigest="{digest}", Nonce="{nonce}", Created="{curdate}"
