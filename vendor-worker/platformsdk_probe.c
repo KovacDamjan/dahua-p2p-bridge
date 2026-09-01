@@ -4,6 +4,7 @@
 
 typedef void *(__cdecl *CREATE_ENTITY)(int);
 typedef int (__cdecl *RELEASE_ENTITY)(void *);
+typedef int (__cdecl *SET_PATH)(const char *);
 
 int main(void) {
     HMODULE sdk = LoadLibraryA("PlatformSDK.dll");
@@ -19,6 +20,11 @@ int main(void) {
 
     printf("EXPORT CreateSDKEntity=%p ReleaseSDKEntity=%p\n",
            (void *)create_entity, (void *)release_entity);
+    if (set_config) printf("SetConfigPath rc=%d\\n", set_config("."));
+    if (set_database) printf("SetDataBasePath rc=%d\\n", set_database("."));
+    if (set_log) printf("SetLogPath rc=%d\\n", set_log(".\\"));
+    if (set_picture) printf("SetPicturePath rc=%d\\n", set_picture(".\\"));
+
     if (!create_entity) {
         FreeLibrary(sdk);
         return 3;
