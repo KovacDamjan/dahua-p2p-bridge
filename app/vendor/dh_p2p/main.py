@@ -259,12 +259,6 @@ def main(
         f"<Pid>0</Pid></body>"
     )
     channel_remote = main_remote
-    p2p_channel_body = (
-        f"<body>{auth}<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
-        f"{ipaddr}<NatValueT>268435455</NatValueT>"
-        f"<version>6.7.15</version>"
-        f"<sVersion>1.1.0</sVersion><Pid>0</Pid></body>"
-    )
     channel_remote.request(
         f"/device/{serial}/p2p-channel",
         p2p_channel_body,
