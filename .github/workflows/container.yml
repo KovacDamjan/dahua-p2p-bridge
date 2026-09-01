@@ -4,6 +4,15 @@ name: Build container
 # locally on Synology DSM to avoid consuming hosted-runner minutes.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'rust-engine/**'
+      - 'Dockerfile'
+      - 'docker-entrypoint.sh'
+      - 'requirements.txt'
+      - '.github/workflows/container.yml'
 
 permissions:
   contents: read
