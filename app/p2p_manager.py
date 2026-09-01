@@ -45,7 +45,7 @@ class WorkerState:
     @property
     def status(self) -> str:
         statuses = [state.status for state in self.services.values()]
-        if len(statuses) < 2 or "connecting" in statuses:
+        if not statuses or "connecting" in statuses:
             return "connecting"
         if "error" in statuses:
             return "error"
