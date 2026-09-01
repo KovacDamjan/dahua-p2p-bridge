@@ -245,13 +245,14 @@ def main(
     main_remote.rport = main_port
 
     # Match SmartPSS channel negotiation fields, including NatValueT and SDK version.
+    channel_remote = main_remote
     p2p_channel_body = (
         f"<body>{auth}<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
         f"{ipaddr}<NatValueT>268435455</NatValueT>"
         f"<version>6.7.15</version>"
         f"<sVersion>1.1.0</sVersion><Pid>0</Pid></body>"
     )
-    device_remote.request(
+    channel_remote.request(
         f"/device/{serial}/p2p-channel",
         p2p_channel_body,
         should_read=False,
@@ -263,26 +264,26 @@ def main(
     for attempt in range(1, channel_attempts + 1):
         if attempt > 1:
             print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
-            device_remote.request(
+            channel_remote.request(
                 f"/device/{serial}/p2p-channel",
                 p2p_channel_body,
                 should_read=False,
             )
-        device_remote.settimeout(45)
+        channel_remote.settimeout(45)
         try:
-            res = device_remote.read(return_error=True)
+            res = channel_remote.read(return_error=True)
             # Easy4IP may emit more than one provisional 100 Trying response
             # for the same channel request.  Continue until the final HTTP
             # response instead of treating the second 1xx body as channel data.
             while res["code"] < 200:
-                res = device_remote.read(return_error=True)
+                res = channel_remote.read(return_error=True)
             break
         except (OSError, socket.timeout) as error:
             last_channel_error = error
             print(f"P2P channel attempt {attempt}/{channel_attempts} failed: {error}", flush=True)
             res = None
         finally:
-            device_remote.settimeout(None)
+            channel_remote.settimeout(None)
 
     if res is None:
         raise ConnectionError(
