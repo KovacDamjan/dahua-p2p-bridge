@@ -203,12 +203,16 @@ def main(
     # Advertise the NAS LAN address to Easy4IP. 127.0.0.1 is only a
     # local bind address and causes the cloud to silently discard the channel
     # request because it cannot route the returned channel to loopback.
-    route_probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        route_probe.connect((main_server, main_port))
-        advertise_ip = route_probe.getsockname()[0]
-    finally:
-        route_probe.close()
+    advertise_ip = os.getenv("P2P_ADVERTISE_IP", "").strip()
+    if advertise_ip:
+        print(f"CHANNEL: using configured advertise IP {advertise_ip}", flush=True)
+    else:
+        route_probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            route_probe.connect((main_server, main_port))
+            advertise_ip = route_probe.getsockname()[0]
+        finally:
+            route_probe.close()
     laddr = f"{advertise_ip}:{main_remote.lport}"
     print(f"CHANNEL: advertising LocalAddr {laddr}", flush=True)
     auth = ""
