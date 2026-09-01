@@ -315,9 +315,11 @@ class UDP(socket.socket):
 
         method = "NFPOST" if body else "NFGET"
         req = f"""{method} {path} HTTP/1.1
+X-Version: 6.7.15
+X-Sversion: 1.1.0
+X-ToUType: Client/SmartPSS_Win
 CSeq: {CSEQ}
 """
-        req += "X-Version: 6.7.15\nX-Sversion: 1.1.0\nX-ToUType: Client/SmartPSS_Win\n"
         if auth:
             req += f"""Authorization: WSSE profile="UsernameToken"
 X-WSSE: UsernameToken Username="{USERNAME}", PasswordDigest="{digest}", Nonce="{nonce}", Created="{curdate}"
