@@ -231,15 +231,16 @@ def main(
 
     res = None
     last_channel_error = None
-    for attempt in range(1, 4):
+    channel_attempts = 5
+    for attempt in range(1, channel_attempts + 1):
         if attempt > 1:
-            print(f"Retrying P2P channel request (attempt {attempt}/3)", flush=True)
+            print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
             device_remote.request(
                 f"/device/{serial}/p2p-channel",
                 p2p_channel_body,
                 should_read=False,
             )
-        device_remote.settimeout(12)
+        device_remote.settimeout(45)
         try:
             res = device_remote.read(return_error=True)
             # Easy4IP may emit more than one provisional 100 Trying response
@@ -250,14 +251,14 @@ def main(
             break
         except (OSError, socket.timeout) as error:
             last_channel_error = error
-            print(f"P2P channel attempt {attempt}/3 failed: {error}", flush=True)
+            print(f"P2P channel attempt {attempt}/{channel_attempts} failed: {error}", flush=True)
             res = None
         finally:
             device_remote.settimeout(None)
 
     if res is None:
         raise ConnectionError(
-            f"Easy4IP did not return P2P channel details after 3 attempts: "
+            f"Easy4IP did not return P2P channel details after {channel_attempts} attempts: "
             f"{last_channel_error}"
         )
 
