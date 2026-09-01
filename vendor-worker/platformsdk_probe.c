@@ -13,6 +13,10 @@ int main(void) {
         return 2;
     }
 
+    SET_PATH set_config = (SET_PATH)GetProcAddress(sdk, "?SetConfigPath@DPSDKFactory@DPSdk@@SAHPEBD@Z");
+    SET_PATH set_database = (SET_PATH)GetProcAddress(sdk, "?SetDataBasePath@DPSDKFactory@DPSdk@@SAHPEBD@Z");
+    SET_PATH set_log = (SET_PATH)GetProcAddress(sdk, "?SetLogPath@DPSDKFactory@DPSdk@@SAHPEBD@Z");
+    SET_PATH set_picture = (SET_PATH)GetProcAddress(sdk, "?SetPicturePath@DPSDKFactory@DPSdk@@SAHPEBD@Z");
     CREATE_ENTITY create_entity = (CREATE_ENTITY)GetProcAddress(
         sdk, "?CreateSDKEntity@DPSDKFactory@DPSdk@@SAPEAVIDPSDKEntity@2@_N@Z");
     RELEASE_ENTITY release_entity = (RELEASE_ENTITY)GetProcAddress(
