@@ -68,14 +68,18 @@ class _Handler(BaseHTTPRequestHandler):
 <tds:Model>Dahua P2P Bridge</tds:Model><tds:FirmwareVersion>6.7.33</tds:FirmwareVersion>
 <tds:SerialNumber> P2P </tds:SerialNumber><tds:HardwareId>P2P</tds:HardwareId></tds:GetDeviceInformationResponse>"""
             elif action == "GetProfiles":
-                body = f"""<trt:GetProfilesResponse>
-<trt:Profiles token="Profile_Main" fixed="true"><tt:Name>MainStream</tt:Name><tt:VideoSourceConfiguration token="VideoSource_Main"/>
-<tt:VideoEncoderConfiguration token="VideoEncoder_Main"><tt:Encoding>H264</tt:Encoding><tt:Resolution><tt:Width>3840</tt:Width><tt:Height>2160</tt:Height></tt:Resolution></tt:VideoEncoderConfiguration></trt:Profiles>
-<trt:Profiles token="Profile_Sub" fixed="true"><tt:Name>SubStream</tt:Name><tt:VideoSourceConfiguration token="VideoSource_Sub"/>
-<tt:VideoEncoderConfiguration token="VideoEncoder_Sub"><tt:Encoding>H264</tt:Encoding><tt:Resolution><tt:Width>704</tt:Width><tt:Height>576</tt:Height></tt:Resolution></tt:VideoEncoderConfiguration></trt:Profiles>
+                body = """<trt:GetProfilesResponse>
+<trt:Profiles token="Profile_Main" fixed="true"><tt:Name>MainStream</tt:Name>
+<tt:VideoSourceConfiguration token="VideoSourceConfig_Main"><tt:Name>MainVideoSource</tt:Name><tt:UseCount>1</tt:UseCount><tt:SourceToken>VideoSource_1</tt:SourceToken><tt:Bounds x="0" y="0" width="3840" height="2160"/></tt:VideoSourceConfiguration>
+<tt:VideoEncoderConfiguration token="VideoEncoder_Main"><tt:Name>MainEncoder</tt:Name><tt:UseCount>1</tt:UseCount><tt:Encoding>H264</tt:Encoding><tt:Resolution><tt:Width>3840</tt:Width><tt:Height>2160</tt:Height></tt:Resolution><tt:Quality>5</tt:Quality><tt:RateControl><tt:FrameRateLimit>25</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>8192</tt:BitrateLimit></tt:RateControl><tt:SessionTimeout>PT60S</tt:SessionTimeout></tt:VideoEncoderConfiguration>
+</trt:Profiles>
+<trt:Profiles token="Profile_Sub" fixed="true"><tt:Name>SubStream</tt:Name>
+<tt:VideoSourceConfiguration token="VideoSourceConfig_Sub"><tt:Name>SubVideoSource</tt:Name><tt:UseCount>1</tt:UseCount><tt:SourceToken>VideoSource_1</tt:SourceToken><tt:Bounds x="0" y="0" width="704" height="576"/></tt:VideoSourceConfiguration>
+<tt:VideoEncoderConfiguration token="VideoEncoder_Sub"><tt:Name>SubEncoder</tt:Name><tt:UseCount>1</tt:UseCount><tt:Encoding>H264</tt:Encoding><tt:Resolution><tt:Width>704</tt:Width><tt:Height>576</tt:Height></tt:Resolution><tt:Quality>3</tt:Quality><tt:RateControl><tt:FrameRateLimit>10</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>1024</tt:BitrateLimit></tt:RateControl><tt:SessionTimeout>PT60S</tt:SessionTimeout></tt:VideoEncoderConfiguration>
+</trt:Profiles>
 </trt:GetProfilesResponse>"""
             elif action == "GetStreamUri":
-                subtype = 1 if b"Profile_Sub" in request or b"VideoEncoder_Sub" in request else 0
+                subtype = 1 if any(token in request for token in (b"Profile_Sub", b"VideoEncoder_Sub", b"SubStream")) else 0
                 body = f"""<trt:GetStreamUriResponse><trt:MediaUri><tt:Uri>{html.escape(_uri(self, port, subtype))}</tt:Uri>
 <tt:InvalidAfterConnect>false</tt:InvalidAfterConnect><tt:InvalidAfterReboot>false</tt:InvalidAfterReboot><tt:Timeout>PT60S</tt:Timeout></trt:MediaUri></trt:GetStreamUriResponse>"""
             elif action == "GetSnapshotUri":
