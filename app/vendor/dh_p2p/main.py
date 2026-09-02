@@ -199,6 +199,7 @@ def main(
         print("Device reported no salt, continuing without one.")
 
     device_remote = UDP(main_server, main_port, debug)
+    channel_remote = UDP(ds_server, ds_port, debug)
 
     # Advertise the NAS LAN address to Easy4IP. 127.0.0.1 is only a
     # local bind address and causes the cloud to silently discard the channel
@@ -398,10 +399,16 @@ def main(
     for attempt in range(1, 4):
         if randsalt:
             auth = get_auth(username, key, nonce, randsalt)
-        main_remote.rhost = main_server
-        main_remote.rport = main_port
-        print(f"Requesting relay channel (attempt {attempt}/3)", flush=True)
-        main_remote.request(
+        # SmartPSS sends relay-channel to the device-side DS endpoint, not
+        # the main cloud endpoint. The NAT response then arrives from agent.
+        channel_remote.rhost = ds_server
+        channel_remote.rport = ds_port
+        print(
+            f"Requesting relay channel via DS {ds_server}:{ds_port} "
+            f"(attempt {attempt}/3)",
+            flush=True,
+        )
+        channel_remote.request(
             f"/device/{serial}/relay-channel",
             f"<body>{auth}<sVersion>1.1.0</sVersion>"
             f"<agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
