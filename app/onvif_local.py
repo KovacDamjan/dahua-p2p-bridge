@@ -31,7 +31,7 @@ def _requested_subtype(data: bytes) -> int:
     # Synology normally sends the profile token as an XML attribute:
     # <trt:ProfileToken>Profile_Sub</trt:ProfileToken> or token="Profile_Sub".
     attribute_match = re.search(
-        r"(?:profiletoken|profile_token)[^>]*?\btoken\s*=\s*["']([^"']+)["']",
+        r"""(?:profiletoken|profile_token)[^>]*?\btoken\s*=\s*["']([^"']+)["']""",
         text,
     )
     element_match = re.search(
