@@ -152,7 +152,7 @@ pub async fn process_reader(
     mut reader: tokio::net::tcp::OwnedReadHalf,
     realm_id: u32,
     dh_tx: mpsc::Sender<PTCPEvent>,
-    channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
+    channels: Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>>>,
     persistent_realm: bool,
 ) {
     let mut buf = [0u8; 4096];
