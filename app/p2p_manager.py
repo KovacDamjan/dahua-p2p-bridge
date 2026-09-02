@@ -134,21 +134,19 @@ class P2PManager:
     def _start_service(self, camera_id: int, worker: WorkerState, service: str) -> None:
         bind_port = worker.port if service == "rtsp" else self.onvif_port_for(camera_id)
         if service == "rtsp":
-            # Both local listeners live in one process and share the authenticated
-            # upstream PTCP session. Remove an alias left by the previous process.
             worker.services.pop("onvif", None)
         env = os.environ.copy()
         env.update(
             P2P_USERNAME=worker.camera["username"],
             P2P_PASSWORD=worker.password,
-            # An idle PTCP session is valid.  Outbound heartbeats keep the NAT
-            # mapping alive, while some cameras send no reply until an RTSP or
-            # ONVIF client is active.  Reconnect only on an actual socket error.
             P2P_IDLE_RECONNECT_SECONDS=os.getenv(
                 "P2P_IDLE_RECONNECT_SECONDS", "0"
             ),
             PYTHONUNBUFFERED="1",
         )
+        transport = os.getenv("P2P_TRANSPORT", "direct").strip().lower()
+        if transport not in ("direct", "relay"):
+            transport = "direct"
         command = [
             sys.executable,
             "-m",
@@ -162,7 +160,7 @@ class P2PManager:
             "--public-rtsp-port",
             str(worker.port),
             "--transport",
-            "relay",
+            transport,
             worker.camera["serial"],
         ]
         process = subprocess.Popen(
@@ -190,12 +188,9 @@ class P2PManager:
         for raw_line in state.process.stdout:
             line = raw_line.rstrip()
             with self._lock:
-                # RTSP and ONVIF share this one authenticated upstream process.
-                # Prefixing every line as RTSP made ONVIF traffic misleading.
                 worker.logs.append(f"[P2P] {line}")
                 worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
                 if line.startswith("READY remote="):
-                    # The vendor worker emits one READY line per mapped port.
                     parts = dict(item.split("=", 1) for item in line.split()[1:] if "=" in item)
                     state.status = "online"
                     state.last_error = None
