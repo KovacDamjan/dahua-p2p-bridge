@@ -1,7 +1,7 @@
 name: Build container
 
-# GitHub Actions are intentionally manual. Production images are built
-# locally on Synology DSM to avoid consuming hosted-runner minutes.
+# Every push to main builds and publishes latest automatically; workflow_dispatch
+# remains available for a manual rebuild.
 on:
   workflow_dispatch:
   push:
