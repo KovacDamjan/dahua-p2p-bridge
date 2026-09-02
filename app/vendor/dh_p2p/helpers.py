@@ -305,7 +305,7 @@ class UDP(socket.socket):
 
     def request(
         self, path, body="", auth=True, should_read=True, pcs_request_id=None,
-        request_cseq=None,
+        request_cseq=None, request_method=None,
     ):
         global CSEQ
         if request_cseq is None:
@@ -320,7 +320,7 @@ class UDP(socket.socket):
         hash_digest.update(pwd.encode())
         digest = base64.b64encode(hash_digest.digest()).decode()
 
-        method = "NFPOST" if body else "NFGET"
+        method = request_method or ("NFPOST" if body else "NFGET")
         req = f"""{method} {path} HTTP/1.1
 X-Version: 6.7.15
 X-Sversion: 1.1.0
