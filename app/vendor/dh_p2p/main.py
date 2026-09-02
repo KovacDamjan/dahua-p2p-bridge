@@ -283,6 +283,7 @@ def main(
         main_remote.request(
             f"/relay/start/{token}",
             f"<body><Dev>{serial}</Dev><Client>:0</Client></body>",
+            should_read=False,
             pcs_request_id=relay_pcs_request_id,
         )
         main_remote.rhost = main_server
