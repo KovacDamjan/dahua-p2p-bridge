@@ -229,10 +229,32 @@ def main(
 
     # SmartPSS sends an encrypted, fixed 64-byte LocalAddr field.
     local_addr_plain = laddr.encode("ascii").ljust(64, bytes([0]))
-    laddr = get_enc(key, nonce, local_addr_plain.decode("latin1"))
-    ipaddr = f"<IpEncrptV2>true</IpEncrptV2><LocalAddr>{laddr}</LocalAddr>"
-    print(f"CHANNEL: IpEncrptV2=true LocalAddrLen={len(laddr)}", flush=True)
-    auth = get_auth(username, key, nonce, randsalt, laddr)
+
+    def build_p2p_channel_body():
+        # The camera expects a fresh nonce, encrypted LocalAddr and DevAuth
+        # for every retry. Reusing the first body makes it silently ignore
+        # subsequent channel requests.
+        channel_nonce = get_nonce()
+        encrypted_local_addr = get_enc(
+            key, channel_nonce, local_addr_plain.decode("latin1")
+        )
+        channel_auth = get_auth(
+            username, key, channel_nonce, randsalt, encrypted_local_addr
+        )
+        def field(name):
+            return channel_auth.split(f"<{name}>", 1)[1].split(
+                f"</{name}>", 1
+            )[0]
+        return (
+            f"<body><CreateDate>{field('CreateDate')}</CreateDate>"
+            f"<DevAuth>{field('DevAuth')}</DevAuth>"
+            f"<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
+            f"<IpEncrptV2>true</IpEncrptV2><NatValueT>268435455</NatValueT>"
+            f"<Nonce>{field('Nonce')}</Nonce><RandSalt>{randsalt}</RandSalt>"
+            f"<UserName>{username}</UserName><version>6.7.15</version>"
+            f"<sVersion>1.1.0</sVersion><LocalAddr>{encrypted_local_addr}</LocalAddr>"
+            f"<Pid>0</Pid></body>"
+        )
 
     relay_pcs_request_id = __import__("uuid").uuid4().hex
 
@@ -268,19 +290,7 @@ def main(
         return agent_server, agent_port
 
     # Match SmartPSS channel negotiation fields and XML order.
-    def field(name):
-        return auth.split(f"<{name}>", 1)[1].split(f"</{name}>", 1)[0]
-
-    p2p_channel_body = (
-        f"<body><CreateDate>{field('CreateDate')}</CreateDate>"
-        f"<DevAuth>{field('DevAuth')}</DevAuth>"
-        f"<Identify>{' '.join(f'{b:x}' for b in aid)}</Identify>"
-        f"<IpEncrptV2>true</IpEncrptV2><NatValueT>268435455</NatValueT>"
-        f"<Nonce>{field('Nonce')}</Nonce><RandSalt>{randsalt}</RandSalt>"
-        f"<UserName>{username}</UserName><version>6.7.15</version>"
-        f"<sVersion>1.1.0</sVersion><LocalAddr>{laddr}</LocalAddr>"
-        f"<Pid>0</Pid></body>"
-    )
+    p2p_channel_body = build_p2p_channel_body()
     if transport == "relay":
         # Relay transport does not require the direct device channel response.
         # The relay-channel negotiation below creates the authenticated PTCP
@@ -318,6 +328,7 @@ def main(
             channel_remote.rport = ds_port
             if attempt > 1:
                 print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
+                p2p_channel_body = build_p2p_channel_body()
                 channel_remote.request(
                     f"/device/{serial}/p2p-channel",
                     p2p_channel_body,
