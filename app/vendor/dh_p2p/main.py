@@ -304,9 +304,9 @@ def main(
     else:
         pcs_request_id = relay_pcs_request_id
         print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
-        channel_remote.rhost = ds_server
-        channel_remote.rport = ds_port
-        print(f"CHANNEL: requesting via DS {ds_server}:{ds_port}", flush=True)
+        channel_remote.rhost = main_server
+        channel_remote.rport = main_port
+        print(f"CHANNEL: requesting via Easy4IP {main_server}:{main_port}", flush=True)
         channel_remote.request(
             f"/device/{serial}/p2p-channel",
             p2p_channel_body,
@@ -333,8 +333,10 @@ def main(
             # SmartPSS sends 2NFPOST p2p-channel first, starts the relay
             # agent, and only then consumes the pending 100 Trying followed by
             # the final Server Nat Info response from the DS socket.
-            channel_remote.rhost = ds_server
-            channel_remote.rport = ds_port
+            # The pending p2p-channel response is returned by the Easy4IP
+            # control server (:8800), not by the DS discovery endpoint (:8802).
+            channel_remote.rhost = main_server
+            channel_remote.rport = main_port
             channel_remote.settimeout(45)
             try:
                 nat_info_response = channel_remote.read(return_error=True)
@@ -424,9 +426,9 @@ def main(
         channel_attempts = 5
         for attempt in range(1, channel_attempts + 1):
             # Relay setup reuses the same socket and changes its destination;
-            # every retry must explicitly go back to the device server (DS).
-            channel_remote.rhost = ds_server
-            channel_remote.rport = ds_port
+            # every retry must explicitly go back to the Easy4IP control server.
+            channel_remote.rhost = main_server
+            channel_remote.rport = main_port
             if attempt > 1:
                 print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
                 p2p_channel_body = build_p2p_channel_body()
