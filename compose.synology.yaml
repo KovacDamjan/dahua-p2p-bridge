@@ -4,14 +4,15 @@ services:
     pull_policy: always
     container_name: dahua-p2p-bridge
     restart: unless-stopped
+    network_mode: host
     environment:
       TZ: ${TZ:-Europe/Ljubljana}
       APP_SECRET_KEY: ${APP_SECRET_KEY:?Set APP_SECRET_KEY in project environment}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in project environment}
       DATABASE_PATH: /app/data/bridge.db
-    ports:
-      - "8095:8095"
-      - "15540-15569:15540-15569"
+      # NAS LAN address advertised to the Dahua cloud/P2P peer.
+      P2P_ADVERTISE_IP: ${P2P_ADVERTISE_IP:?Set P2P_ADVERTISE_IP to the NAS LAN IP}
+    # With host networking these ports are bound directly on the NAS.
     volumes:
       - ./data:/app/data
     security_opt:
