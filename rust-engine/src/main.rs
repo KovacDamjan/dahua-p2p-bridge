@@ -69,16 +69,15 @@ async fn handle_client(
         }
         _ => {
             eprintln!(
-                "PTCP {service} realm {realm_id:08x} bind timed out; upstream tunnel is not usable"
+                "PTCP {service} realm {realm_id:08x} bind timed out; closing only this local client"
             );
             channels.lock().unwrap().remove(&realm_id);
             conn_channels.lock().unwrap().remove(&realm_id);
-            // Idle time alone is not a failure, but a local client reached us
-            // and the authenticated camera tunnel did not acknowledge a port
-            // bind.  This is positive evidence that the session is stale.
-            // Exit with the manager's reconnect code instead of advertising
-            // the transport as online while Surveillance Station sees it down.
-            std::process::exit(75);
+            // A single RTSP probe can disappear while Surveillance Station
+            // opens several realms. Do not terminate the shared authenticated
+            // P2P session: other streams and subsequent clients can still use
+            // the relay. The client task ends without taking the camera offline.
+            return;
         }
     }
 
