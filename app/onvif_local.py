@@ -28,9 +28,29 @@ def _uri(handler, port: int, subtype: int) -> str:
 
 def _requested_subtype(data: bytes) -> int:
     text = data.decode("utf-8", errors="ignore").lower()
-    token_match = re.search(r"<(?:[^:>]+:)?profiletoken[^>]*>\s*([^<]+)", text)
-    token = token_match.group(1).strip() if token_match else ""
-    is_sub = "profile_sub" in token or "substream" in token or "videoencoder_sub" in text
+    # Synology normally sends the profile token as an XML attribute:
+    # <trt:ProfileToken>Profile_Sub</trt:ProfileToken> or token="Profile_Sub".
+    attribute_match = re.search(
+        r"(?:profiletoken|profile_token)[^>]*?\btoken\s*=\s*["']([^"']+)["']",
+        text,
+    )
+    element_match = re.search(
+        r"<(?:[^:>]+:)?profiletoken[^>]*>\s*([^<]+)",
+        text,
+    )
+    token = (
+        attribute_match.group(1).strip()
+        if attribute_match
+        else element_match.group(1).strip()
+        if element_match
+        else ""
+    )
+    is_sub = (
+        "profile_sub" in token
+        or "substream" in token
+        or "videoencoder_sub" in text
+        or "profile_sub" in text
+    )
     return 1 if is_sub else 0
 
 def _action(data: bytes) -> str:
@@ -47,14 +67,41 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         return
 
-    def do_GET(self):
-        if self.path in ("/", "/onvif/device_service", "/onvif/media_service", "/onvif/events_service"):
-            self.send_response(200)
-            self.send_header("Content-Type", "application/xml")
-            body = b'<?xml version="1.0"?><onvif>online</onvif>'
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
+    def _is_onvif_path(self):
+        return self.path.split("?", 1)[0] in (
+            "/", "/onvif/device_service", "/onvif/media_service",
+            "/onvif/events_service",
+        )
+
+    def _send_health(self, include_body=True):
+        body = b'<?xml version="1.0"?><onvif>online</onvif>'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/xml")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if include_body:
             self.wfile.write(body)
+
+    def do_HEAD(self):
+        if self._is_onvif_path():
+            self._send_health(include_body=False)
+        else:
+            self.send_error(404)
+
+    def do_OPTIONS(self):
+        if self._is_onvif_path():
+            self.send_response(200)
+            self.send_header("Allow", "GET, HEAD, OPTIONS, POST")
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+        else:
+            self.send_error(404)
+
+    def do_GET(self):
+        if self._is_onvif_path():
+            self._send_health()
             return
         self.send_error(404)
 
@@ -63,6 +110,9 @@ class _Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             request = self.rfile.read(length)
             action = _action(request)
+            print("[ONVIF] {} {} action={}".format(
+                self.command, self.path, action or "unknown"
+            ), flush=True)
             port = self.server.rtsp_port
             if action == "GetCapabilities":
                 body = f"""<tds:GetCapabilitiesResponse><tds:Capabilities>
@@ -110,7 +160,8 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(response)
-        except Exception:
+        except Exception as error:
+            print("[ONVIF] request failed: {}".format(error), flush=True)
             self.send_error(500)
 
 
