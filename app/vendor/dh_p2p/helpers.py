@@ -307,10 +307,11 @@ class UDP(socket.socket):
         self, path, body="", auth=True, should_read=True, pcs_request_id=None,
         request_cseq=None, request_method=None,
     ):
-        global CSEQ
         if request_cseq is None:
-            CSEQ += 1
-            request_cseq = CSEQ
+            # SmartPSS uses an independent random signed 32-bit request id for
+            # each DH request. The p2p-channel retry path explicitly reuses
+            # its original CSeq.
+            request_cseq = random.randint(-(2**31), 2**31 - 1)
         self.last_request_cseq = request_cseq
 
         nonce = random.randrange(2**31)
