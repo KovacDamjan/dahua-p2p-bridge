@@ -241,7 +241,7 @@ pub async fn dh_writer(
 pub async fn dh_reader(
     session: Arc<Mutex<PTCPSession>>,
     socket: Arc<UdpSocket>,
-    channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
+    channels: Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>>>,
     conn_channels: Arc<Mutex<HashMap<u32, oneshot::Sender<bool>>>>,
     onvif_realm: Arc<Mutex<Option<u32>>>,
 ) {
@@ -277,7 +277,7 @@ pub async fn dh_reader(
             PTCPBody::Payload(p) => {
                 let tx = channels.lock().unwrap().get(&p.realm).cloned();
                 if let Some(tx) = tx {
-                    if tx.send(p.data).is_err() {
+                    if tx.send(p.data).await.is_err() {
                         println!("Realm {:08x} unavailable", p.realm);
                     }
                 }
