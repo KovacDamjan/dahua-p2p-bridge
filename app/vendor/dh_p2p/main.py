@@ -334,6 +334,9 @@ def main(
             # from the relay agent. It is not a plain UDP/HTTP datagram.
             main_remote.rhost = agent_server
             main_remote.rport = agent_port
+            # SmartPSS opens the PTCP session with the standard sync packet
+            # before the relay agent sends Server Nat Info.
+            main_remote.request_ptcp(b"\\x00\\x03\\x01\\x00")
             main_remote.settimeout(45)
             try:
                 nat_info_response = None
