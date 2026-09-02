@@ -504,7 +504,10 @@ impl PTCP for UdpSocket {
             println!("### {}", peer);
         }
 
-        let mut buf = [0u8; 4096];
+        // PTCP relay datagrams can exceed 4 KiB for HQ video. A smaller
+        // buffer truncates the UDP datagram and makes the ordered byte
+        // stream wait forever for data that was already discarded.
+        let mut buf = [0u8; 65535];
         let recovery_started = Instant::now();
         let idle_limit = idle_reconnect_seconds();
         let n = loop {
