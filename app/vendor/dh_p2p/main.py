@@ -232,24 +232,27 @@ def main(
     print(f"CHANNEL: IpEncrptV2=true LocalAddrLen={len(laddr)}", flush=True)
     auth = get_auth(username, key, nonce, randsalt, laddr)
 
-    # SmartPSS registers a relay agent before requesting the P2P channel.
-    # Without this ordering Easy4IP accepts the UDP request but never returns
-    # LocalAddr/PubAddr.
-    main_remote.rhost = main_server
-    main_remote.rport = main_port
-    relay_res = main_remote.request("/online/relay")
-    relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
-    main_remote.rhost = relay_server
-    main_remote.rport = int(relay_port)
-    agent_res = main_remote.request("/relay/agent")
-    token = agent_res["data"]["body"]["Token"]
-    agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
-    main_remote.rhost = agent_server
-    main_remote.rport = int(agent_port)
-    relay_pcs_request_id = __import__("uuid").uuid4().hex
-    main_remote.request(f"/relay/start/{token}", "<body><Client>:0</Client></body>", pcs_request_id=relay_pcs_request_id)
-    main_remote.rhost = main_server
-    main_remote.rport = main_port
+    if transport != "relay":
+        # SmartPSS registers a relay agent before requesting the P2P channel.
+        # Without this ordering Easy4IP accepts the UDP request but never returns
+        # LocalAddr/PubAddr.
+        main_remote.rhost = main_server
+        main_remote.rport = main_port
+        relay_res = main_remote.request("/online/relay")
+        relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
+        main_remote.rhost = relay_server
+        main_remote.rport = int(relay_port)
+        agent_res = main_remote.request("/relay/agent")
+        token = agent_res["data"]["body"]["Token"]
+        agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
+        main_remote.rhost = agent_server
+        main_remote.rport = int(agent_port)
+        relay_pcs_request_id = __import__("uuid").uuid4().hex
+        main_remote.request(f"/relay/start/{token}", "<body><Client>:0</Client></body>", pcs_request_id=relay_pcs_request_id)
+        main_remote.rhost = main_server
+        main_remote.rport = main_port
+
+
 
     # Match SmartPSS channel negotiation fields and XML order.
     def field(name):
