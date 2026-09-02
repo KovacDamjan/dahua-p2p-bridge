@@ -241,7 +241,7 @@ def main(
         # LocalAddr/PubAddr.
         main_remote.rhost = main_server
         main_remote.rport = main_port
-        relay_res = main_remote.request("/online/relay")
+        relay_res = main_remote.request("/online/relay", pcs_request_id=relay_pcs_request_id)
         relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
         main_remote.rhost = relay_server
         main_remote.rport = int(relay_port)
@@ -373,7 +373,7 @@ def main(
     # has completed.  Otherwise the SID expires before /relay-channel is sent.
     main_remote.rhost = main_server
     main_remote.rport = main_port
-    res = main_remote.request("/online/relay")
+    res = main_remote.request("/online/relay", pcs_request_id=relay_pcs_request_id)
     relay_server, relay_port = res["data"]["body"]["Address"].split(":")
     relay_port = int(relay_port)
 
