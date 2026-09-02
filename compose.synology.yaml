@@ -11,7 +11,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in project environment}
       DATABASE_PATH: /app/data/bridge.db
       # NAS LAN address advertised to the Dahua cloud/P2P peer.
-      P2P_ADVERTISE_IP: ${P2P_ADVERTISE_IP:?Set P2P_ADVERTISE_IP to the NAS LAN IP}
+      # Leave empty to auto-detect the source address used for Easy4IP.\n      P2P_ADVERTISE_IP: ${P2P_ADVERTISE_IP:-}
     # With host networking these ports are bound directly on the NAS.
     volumes:
       - ./data:/app/data
