@@ -216,7 +216,7 @@ def main(
             advertise_ip = route_probe.getsockname()[0]
         finally:
             route_probe.close()
-    laddr = f"{advertise_ip}:{main_remote.lport}"
+    laddr = f"{advertise_ip}:{channel_remote.lport}"
     print(f"CHANNEL: advertising LocalAddr {laddr}", flush=True)
     auth = ""
     ipaddr = ""
