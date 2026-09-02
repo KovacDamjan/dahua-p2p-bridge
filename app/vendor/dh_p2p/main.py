@@ -199,7 +199,7 @@ def main(
         print("Device reported no salt, continuing without one.")
 
     device_remote = UDP(main_server, main_port, debug)
-    channel_remote = UDP(ds_server, ds_port, debug)
+    # SmartPSS uses one UDP socket/source port for the complete relay flow.\n    channel_remote = main_remote
 
     # Advertise the NAS LAN address to Easy4IP. 127.0.0.1 is only a
     # local bind address and causes the cloud to silently discard the channel
