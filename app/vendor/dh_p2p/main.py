@@ -333,9 +333,9 @@ def main(
             main_remote.rport = agent_port
             main_remote.settimeout(8)
             try:
-                main_remote.request_ptcp(b"\\x00\\x03\\x01\\x00")
+                main_remote.request_ptcp(b"\x00\x03\x01\x00")
                 relay_sync = main_remote.read_ptcp(timeout=8)
-                if relay_sync.body == b"\\x00\\x03\\x01\\x00":
+                if relay_sync.body == b"\x00\x03\x01\x00":
                     print(
                         f"CHANNEL: PTCP relay ready via {agent_server}:{agent_port}",
                         flush=True,
