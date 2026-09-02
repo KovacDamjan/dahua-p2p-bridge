@@ -318,8 +318,49 @@ def main(
         p2p_request_cseq = channel_remote.last_request_cseq
 
         # SmartPSS starts the relay-agent negotiation while the direct channel
-        # response is pending on the separate DS socket.
+        # request is pending. The p2p-channel request is fire-and-forget in
+        # the captured flow: SmartPSS does not wait for an HTTP response before
+        # switching to the binary PTCP tunnel on the relay agent.
         agent_server, agent_port = setup_relay_agent()
+
+        if os.getenv("P2P_WAIT_FOR_CHANNEL_RESPONSE", "0").strip() != "1":
+            print(
+                "CHANNEL: proceeding to PTCP via relay agent without waiting "
+                "for p2p-channel HTTP response",
+                flush=True,
+            )
+            main_remote.rhost = agent_server
+            main_remote.rport = agent_port
+            main_remote.settimeout(8)
+            try:
+                main_remote.request_ptcp(b"\\x00\\x03\\x01\\x00")
+                relay_sync = main_remote.read_ptcp(timeout=8)
+                if relay_sync.body == b"\\x00\\x03\\x01\\x00":
+                    print(
+                        f"CHANNEL: PTCP relay ready via {agent_server}:{agent_port}",
+                        flush=True,
+                    )
+                    device_remote.close()
+                    launch_engine(
+                        main_remote,
+                        socketserver,
+                        onvif_socketserver,
+                        rtsp_port,
+                        public_rtsp_port or actual_rtsp_port,
+                    )
+                print(
+                    "CHANNEL: relay PTCP returned an unexpected sync response; "
+                    "falling back to channel-response mode",
+                    flush=True,
+                )
+            except (OSError, socket.timeout) as error:
+                print(
+                    f"CHANNEL: relay PTCP did not start ({error}); "
+                    "falling back to channel-response mode",
+                    flush=True,
+                )
+            finally:
+                main_remote.settimeout(None)
 
         res = None
         last_channel_error = None
