@@ -199,8 +199,9 @@ def main(
         print("Device reported no salt, continuing without one.")
 
     device_remote = UDP(main_server, main_port, debug)
-    # SmartPSS uses one UDP socket/source port for the complete relay flow.
-    channel_remote = main_remote
+    # SmartPSS uses a separate socket for the pending device channel request
+    # and the relay-agent negotiation.
+    channel_remote = UDP(main_server, main_port, debug)
 
     # Advertise the NAS LAN address to Easy4IP. 127.0.0.1 is only a
     # local bind address and causes the cloud to silently discard the channel
@@ -235,35 +236,37 @@ def main(
     auth = get_auth(username, key, nonce, randsalt, laddr)
 
     relay_pcs_request_id = __import__("uuid").uuid4().hex
-    # SmartPSS registers one relay agent before requesting the device channel.
-    # Keep this single relay session alive; creating a second one after the
-    # channel request leaves the camera waiting on a different PCS/SID.
-    main_remote.rhost = main_server
-    main_remote.rport = main_port
-    relay_res = main_remote.request(
-        "/online/relay",
-        pcs_request_id=relay_pcs_request_id,
-    )
-    relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
-    main_remote.rhost = relay_server
-    main_remote.rport = int(relay_port)
-    agent_res = main_remote.request(
-        "/relay/agent",
-        f"<body><Dev>{serial}</Dev></body>",
-        pcs_request_id=relay_pcs_request_id,
-    )
-    token = agent_res["data"]["body"]["Token"]
-    agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
-    agent_port = int(agent_port)
-    main_remote.rhost = agent_server
-    main_remote.rport = agent_port
-    main_remote.request(
-        f"/relay/start/{token}",
-        f"<body><Dev>{serial}</Dev><Client>:0</Client></body>",
-        pcs_request_id=relay_pcs_request_id,
-    )
-    main_remote.rhost = main_server
-    main_remote.rport = main_port
+
+    def setup_relay_agent():
+        # SmartPSS creates the relay agent after the pending direct channel
+        # request has been sent, and uses the same PCS request id.
+        main_remote.rhost = main_server
+        main_remote.rport = main_port
+        relay_res = main_remote.request(
+            "/online/relay",
+            pcs_request_id=relay_pcs_request_id,
+        )
+        relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
+        main_remote.rhost = relay_server
+        main_remote.rport = int(relay_port)
+        agent_res = main_remote.request(
+            "/relay/agent",
+            f"<body><Dev>{serial}</Dev></body>",
+            pcs_request_id=relay_pcs_request_id,
+        )
+        token = agent_res["data"]["body"]["Token"]
+        agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
+        agent_port = int(agent_port)
+        main_remote.rhost = agent_server
+        main_remote.rport = agent_port
+        main_remote.request(
+            f"/relay/start/{token}",
+            f"<body><Dev>{serial}</Dev><Client>:0</Client></body>",
+            pcs_request_id=relay_pcs_request_id,
+        )
+        main_remote.rhost = main_server
+        main_remote.rport = main_port
+        return agent_server, agent_port
 
     # Match SmartPSS channel negotiation fields and XML order.
     def field(name):
@@ -283,6 +286,7 @@ def main(
         # Relay transport does not require the direct device channel response.
         # The relay-channel negotiation below creates the authenticated PTCP
         # session and hands it to the Rust engine.
+        agent_server, agent_port = setup_relay_agent()
         print("CHANNEL: relay-only mode; skipping direct p2p-channel", flush=True)
         res = {
             "code": 200,
@@ -301,6 +305,10 @@ def main(
             pcs_request_id=pcs_request_id,
         )
 
+        # SmartPSS starts the relay-agent negotiation while the direct channel
+        # response is pending on the separate DS socket.
+        agent_server, agent_port = setup_relay_agent()
+
         res = None
         last_channel_error = None
         channel_attempts = 5
@@ -316,9 +324,6 @@ def main(
             channel_remote.settimeout(45)
             try:
                 res = channel_remote.read(return_error=True)
-                # Easy4IP may emit more than one provisional 100 Trying response
-                # for the same channel request.  Continue until the final HTTP
-                # response instead of treating the second 1xx body as channel data.
                 while res["code"] < 200:
                     res = channel_remote.read(return_error=True)
                 break
