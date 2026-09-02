@@ -235,30 +235,35 @@ def main(
     auth = get_auth(username, key, nonce, randsalt, laddr)
 
     relay_pcs_request_id = __import__("uuid").uuid4().hex
-    if transport != "relay":
-        # SmartPSS registers a relay agent before requesting the P2P channel.
-        # Without this ordering Easy4IP accepts the UDP request but never returns
-        # LocalAddr/PubAddr.
-        main_remote.rhost = main_server
-        main_remote.rport = main_port
-        relay_res = main_remote.request("/online/relay", pcs_request_id=relay_pcs_request_id)
-        relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
-        main_remote.rhost = relay_server
-        main_remote.rport = int(relay_port)
-        agent_res = main_remote.request(
-            "/relay/agent",
-            f"<body><Dev>{serial}</Dev></body>",
-            pcs_request_id=relay_pcs_request_id,
-        )
-        token = agent_res["data"]["body"]["Token"]
-        agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
-        main_remote.rhost = agent_server
-        main_remote.rport = int(agent_port)
-        main_remote.request(f"/relay/start/{token}", "<body><Client>:0</Client></body>", pcs_request_id=relay_pcs_request_id)
-        main_remote.rhost = main_server
-        main_remote.rport = main_port
-
-
+    # SmartPSS registers one relay agent before requesting the device channel.
+    # Keep this single relay session alive; creating a second one after the
+    # channel request leaves the camera waiting on a different PCS/SID.
+    main_remote.rhost = main_server
+    main_remote.rport = main_port
+    relay_res = main_remote.request(
+        "/online/relay",
+        pcs_request_id=relay_pcs_request_id,
+    )
+    relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
+    main_remote.rhost = relay_server
+    main_remote.rport = int(relay_port)
+    agent_res = main_remote.request(
+        "/relay/agent",
+        f"<body><Dev>{serial}</Dev></body>",
+        pcs_request_id=relay_pcs_request_id,
+    )
+    token = agent_res["data"]["body"]["Token"]
+    agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
+    agent_port = int(agent_port)
+    main_remote.rhost = agent_server
+    main_remote.rport = agent_port
+    main_remote.request(
+        f"/relay/start/{token}",
+        f"<body><Dev>{serial}</Dev><Client>:0</Client></body>",
+        pcs_request_id=relay_pcs_request_id,
+    )
+    main_remote.rhost = main_server
+    main_remote.rport = main_port
 
     # Match SmartPSS channel negotiation fields and XML order.
     def field(name):
@@ -367,56 +372,14 @@ def main(
     device_remote.rhost = device_server
     device_remote.rport = device_port
 
-    # Relay agent sessions are short lived (typically Time=30).  The camera's
-    # P2P NAT response can take more than 30 seconds when it only succeeds on a
-    # later retry, so acquire and start the relay agent only after NAT discovery
-    # has completed.  Otherwise the SID expires before /relay-channel is sent.
-    main_remote.rhost = main_server
-    main_remote.rport = main_port
-    res = main_remote.request("/online/relay", pcs_request_id=relay_pcs_request_id)
-    relay_server, relay_port = res["data"]["body"]["Address"].split(":")
-    relay_port = int(relay_port)
-
-    main_remote.rhost = relay_server
-    main_remote.rport = relay_port
-    res = main_remote.request(
-            "/relay/agent",
-            f"<body><Dev>{serial}</Dev></body>",
-            pcs_request_id=relay_pcs_request_id,
-        )
-    token = res["data"]["body"]["Token"]
-    agent_server, agent_port = res["data"]["body"]["Agent"].split(":")
-    agent_port = int(agent_port)
-
-    main_remote.rhost = agent_server
-    main_remote.rport = agent_port
-    main_remote.request(
-        f"/relay/start/{token}",
-        "<body><Client>:0</Client></body>",
-        pcs_request_id=relay_pcs_request_id,
-    )
-
-    main_remote.rhost = main_server
-    main_remote.rport = main_port
-
-    if randsalt:
-        auth = get_auth(username, key, nonce, randsalt)
-
-    relay_nat_response = None
-    last_relay_error = None
-    print(f"RELAY: PCS request id {relay_pcs_request_id}", flush=True)
-    for attempt in range(1, 4):
+    if transport == "relay":
+        # Relay mode uses the already-created agent session and asks the device
+        # side to return NAT information through that agent.
+        relay_nat_response = None
         if randsalt:
             auth = get_auth(username, key, nonce, randsalt)
-        # SmartPSS sends relay-channel to the device-side DS endpoint, not
-        # the main cloud endpoint. The NAT response then arrives from agent.
         channel_remote.rhost = ds_server
         channel_remote.rport = ds_port
-        print(
-            f"Requesting relay channel via DS {ds_server}:{ds_port} "
-            f"(attempt {attempt}/3)",
-            flush=True,
-        )
         channel_remote.request(
             f"/device/{serial}/relay-channel",
             f"<body>{auth}<sVersion>1.1.0</sVersion>"
@@ -429,18 +392,18 @@ def main(
         main_remote.settimeout(10)
         try:
             relay_nat_response = main_remote.read()
-            break
         except (OSError, socket.timeout) as error:
-            last_relay_error = error
-            print(f"Relay channel attempt {attempt}/3 failed: {error}", flush=True)
+            raise ConnectionError(
+                f"Agent server {agent_server}:{agent_port} did not return NAT info: {error}"
+            ) from error
         finally:
             main_remote.settimeout(None)
-
-    if relay_nat_response is None:
-        raise ConnectionError(
-            f"Agent server {agent_server}:{agent_port} did not return NAT info "
-            f"after 3 attempts: {last_relay_error}"
-        )
+    else:
+        # In direct mode the p2p-channel response is the NAT response. Restore
+        # the relay agent endpoint for the PTCP sign exchange; do not create a
+        # second relay session or send relay-channel.
+        main_remote.rhost = agent_server
+        main_remote.rport = agent_port
 
     main_remote.request_ptcp(b"\x00\x03\x01\x00")
     res = main_remote.read_ptcp()
