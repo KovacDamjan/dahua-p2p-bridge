@@ -27,7 +27,9 @@ def _uri(handler, port: int, subtype: int) -> str:
 
 
 def _action(data: bytes) -> str:
-    match = re.search(rb"<(?:[^:>]+:)?([A-Za-z0-9]+)(?:\s|>)", data)
+    body = re.search(rb"<(?:[^:>]+:)?Body(?:\s|>)", data)
+    search = data[body.end():] if body else data
+    match = re.search(rb"<(?:[^:>]+:)?([A-Za-z0-9]+)(?:\s|>)", search)
     return match.group(1).decode() if match else ""
 
 
