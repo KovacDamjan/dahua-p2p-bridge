@@ -10,6 +10,8 @@ services:
       APP_SECRET_KEY: ${APP_SECRET_KEY:?Set APP_SECRET_KEY in project environment}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in project environment}
       DATABASE_PATH: /app/data/bridge.db
+      # This camera uses the SmartPSS direct channel flow.
+      P2P_TRANSPORT: direct
       # NAS LAN address advertised to the Dahua cloud/P2P peer.
       # Leave empty to auto-detect the source address used for Easy4IP.
       P2P_ADVERTISE_IP: ${P2P_ADVERTISE_IP:-}
