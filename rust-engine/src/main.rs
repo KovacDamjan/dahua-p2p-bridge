@@ -24,7 +24,7 @@ async fn handle_client(
     remote_port: u32,
     service: &'static str,
     dh_tx: mpsc::Sender<PTCPEvent>,
-    channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
+    channels: Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>>>,
     conn_channels: Arc<Mutex<HashMap<u32, oneshot::Sender<bool>>>>,
     onvif_slots: Arc<Semaphore>,
     onvif_realm: Arc<Mutex<Option<u32>>>,
@@ -45,7 +45,7 @@ async fn handle_client(
     // authenticated P2P relay alive, but bind a fresh realm per request so a
     // following Synology request can never race with the delayed DISC packet.
     let realm_id = rand::random::<u32>();
-    let (tx, rx) = mpsc::channel::<Vec<u8>>(128);
+    let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
     channels.lock().unwrap().insert(realm_id, tx);
 
     let (conn_tx, conn_rx) = oneshot::channel::<bool>();
@@ -167,7 +167,7 @@ async fn main() {
     );
     let (dh_tx, dh_rx) = mpsc::channel::<PTCPEvent>(128);
     let session = Arc::new(Mutex::new(session));
-    let channels = Arc::new(Mutex::new(HashMap::<u32, mpsc::Sender<Vec<u8>>>::new()));
+    let channels = Arc::new(Mutex::new(HashMap::<u32, mpsc::UnboundedSender<Vec<u8>>>::new()));
     let conn_channels = Arc::new(Mutex::new(HashMap::<u32, oneshot::Sender<bool>>::new()));
     let onvif_slots = Arc::new(Semaphore::new(1));
     let onvif_realm = Arc::new(Mutex::new(None::<u32>));
