@@ -329,10 +329,33 @@ def main(
                 "for p2p-channel HTTP response",
                 flush=True,
             )
+            # SmartPSS completes relay-channel negotiation before sending the
+            # first PTCP SYN. The relay-channel request is sent to Easy4IP;
+            # its response is returned on the agent socket.
+            main_remote.rhost = main_server
+            main_remote.rport = main_port
+            main_remote.request(
+                f"/device/{serial}/relay-channel",
+                f"<body><agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
+                should_read=False,
+                pcs_request_id=pcs_request_id,
+            )
             main_remote.rhost = agent_server
             main_remote.rport = agent_port
-            main_remote.settimeout(8)
+            main_remote.settimeout(45)
             try:
+                relay_channel_response = main_remote.read(return_error=True)
+                while relay_channel_response["code"] < 200:
+                    relay_channel_response = main_remote.read(return_error=True)
+                if relay_channel_response["code"] >= 400:
+                    raise ConnectionError(
+                        "relay-channel rejected: "
+                        + relay_channel_response["status"]
+                    )
+                print(
+                    "CHANNEL: relay-channel negotiation completed",
+                    flush=True,
+                )
                 main_remote.request_ptcp(b"\x00\x03\x01\x00")
                 relay_sync = main_remote.read_ptcp(timeout=8)
                 if relay_sync.body == b"\x00\x03\x01\x00":
@@ -353,7 +376,7 @@ def main(
                     "falling back to channel-response mode",
                     flush=True,
                 )
-            except (OSError, socket.timeout) as error:
+            except (OSError, socket.timeout, ConnectionError) as error:
                 print(
                     f"CHANNEL: relay PTCP did not start ({error}); "
                     "falling back to channel-response mode",
