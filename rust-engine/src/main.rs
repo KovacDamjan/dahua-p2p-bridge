@@ -140,6 +140,18 @@ async fn main() {
     let args = Cli::parse();
 
     let udp_std = unsafe { std::net::UdpSocket::from_raw_fd(args.udp_fd) };
+    let udp_socket = socket2::Socket::from(udp_std);
+    // HQ video plus multiple RTSP consumers can burst several megabytes of
+    // PTCP datagrams. The default Linux receive queue is too small and causes
+    // the ordered PTCP reader to wait forever for packets already discarded
+    // by the kernel.
+    let requested_recv_buffer = 8 * 1024 * 1024;
+    if let Err(error) = udp_socket.set_recv_buffer_size(requested_recv_buffer) {
+        eprintln!("PTCP UDP receive buffer request failed: {error}");
+    }
+    let actual_recv_buffer = udp_socket.recv_buffer_size().unwrap_or(0);
+    println!("PTCP UDP receive buffer: requested={} actual={}", requested_recv_buffer, actual_recv_buffer);
+    let udp_std: std::net::UdpSocket = udp_socket.into();
     udp_std.set_nonblocking(true).expect("set UDP nonblocking");
     let socket = UdpSocket::from_std(udp_std).expect("adopt UDP socket");
 
