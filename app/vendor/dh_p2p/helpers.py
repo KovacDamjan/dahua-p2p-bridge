@@ -247,6 +247,7 @@ class UDP(socket.socket):
         self.ptcp_recv = 0
         self.ptcp_count = 0
         self.ptcp_id = 0
+        self.last_request_cseq = None
 
         self.rmid = 0
 
@@ -302,10 +303,15 @@ class UDP(socket.socket):
 
         return res
 
-    def request(self, path, body="", auth=True, should_read=True, pcs_request_id=None):
+    def request(
+        self, path, body="", auth=True, should_read=True, pcs_request_id=None,
+        request_cseq=None,
+    ):
         global CSEQ
-        CSEQ += 1
-        request_cseq = CSEQ
+        if request_cseq is None:
+            CSEQ += 1
+            request_cseq = CSEQ
+        self.last_request_cseq = request_cseq
 
         nonce = random.randrange(2**31)
         curdate = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -319,7 +325,7 @@ class UDP(socket.socket):
 X-Version: 6.7.15
 X-Sversion: 1.1.0
 X-ToUType: Client/SmartPSS_Win
-CSeq: {CSEQ}
+CSeq: {request_cseq}
 """
         if path in ("/online/relay", "/relay/agent") or path.startswith("/relay/start/") or "p2p-channel" in path or "relay-channel" in path:
             req = req.replace("X-ToUType: Client/SmartPSS_Win\n", f"x-pcs-request-id: {pcs_request_id or uuid.uuid4().hex}\nX-ToUType: Client/SmartPSS_Win\n")
