@@ -90,10 +90,10 @@ fn rewrite_http_response(data: &[u8], config: &HttpRewriteConfig) -> Vec<u8> {
  */
 pub async fn process_writer(
     mut writer: tokio::net::tcp::OwnedWriteHalf,
-    mut rx: mpsc::Receiver<Vec<u8>>,
+    mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
     http_rewrite: Option<HttpRewriteConfig>,
     realm_id: u32,
-    channels: Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>,
+    channels: Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>>>,
     _connection_permit: Option<OwnedSemaphorePermit>,
 ) {
     if let Some(config) = http_rewrite {
@@ -277,7 +277,7 @@ pub async fn dh_reader(
             PTCPBody::Payload(p) => {
                 let tx = channels.lock().unwrap().get(&p.realm).cloned();
                 if let Some(tx) = tx {
-                    if tx.send(p.data).await.is_err() {
+                    if tx.send(p.data).is_err() {
                         println!("Realm {:08x} unavailable", p.realm);
                     }
                 }
