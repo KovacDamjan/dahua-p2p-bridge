@@ -5,6 +5,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from app.onvif_local import start_onvif
+
 LOG_HISTORY_LIMIT = max(100, int(os.getenv("P2P_LOG_HISTORY", "1000")))
 LOG_STATUS_LIMIT = max(20, int(os.getenv("P2P_LOG_STATUS_LINES", "500")))
 TRANSIENT_RETRY_SECONDS = max(1, int(os.getenv("P2P_TRANSIENT_RETRY_SECONDS", "60")))
@@ -41,6 +43,7 @@ class WorkerState:
     services: dict[str, ServiceState] = field(default_factory=dict)
     logs: list[str] = field(default_factory=list)
     proxy_process: subprocess.Popen | None = None
+    onvif_server: object | None = None
 
     @property
     def status(self) -> str:
@@ -94,6 +97,11 @@ class P2PManager:
             self._start_vendor_service(camera_id, worker)
         else:
             self._start_service(camera_id, worker, "rtsp")
+            worker.onvif_server = start_onvif(self.onvif_port_for(camera_id), worker.port)
+            worker.logs.append(
+                f"[ONVIF] Local ONVIF service listening on {self.onvif_port_for(camera_id)} "
+                "with MainStream and SubStream profiles"
+            )
         return worker
 
     def _start_vendor_service(self, camera_id: int, worker: WorkerState) -> None:
@@ -154,7 +162,7 @@ class P2PManager:
             "--type",
             "1",
             "--service",
-            "both" if service == "rtsp" else service,
+            "rtsp" if service == "rtsp" else service,
             "--bind-port",
             str(bind_port),
             "--public-rtsp-port",
@@ -274,6 +282,12 @@ class P2PManager:
             worker = self._workers.pop(camera_id, None)
         if not worker:
             return
+        if worker.onvif_server is not None:
+            try:
+                worker.onvif_server.shutdown()
+                worker.onvif_server.server_close()
+            except Exception:
+                pass
         if worker.proxy_process and worker.proxy_process.poll() is None:
             worker.proxy_process.terminate()
         states = list({id(state): state for state in worker.services.values()}.values())
