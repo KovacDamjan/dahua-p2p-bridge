@@ -199,9 +199,8 @@ def main(
         print("Device reported no salt, continuing without one.")
 
     device_remote = UDP(main_server, main_port, debug)
-    # SmartPSS uses a separate socket for the pending device channel request
-    # and the relay-agent negotiation.
-    channel_remote = UDP(main_server, main_port, debug)
+    # SmartPSS uses one UDP source port for the complete channel flow.
+    channel_remote = main_remote
 
     # Advertise the NAS LAN address to Easy4IP. 127.0.0.1 is only a
     # local bind address and causes the cloud to silently discard the channel
@@ -216,7 +215,7 @@ def main(
             advertise_ip = route_probe.getsockname()[0]
         finally:
             route_probe.close()
-    laddr = f"{advertise_ip}:{channel_remote.lport}"
+    laddr = f"{advertise_ip}:{main_remote.lport}"
     print(f"CHANNEL: advertising LocalAddr {laddr}", flush=True)
     auth = ""
     ipaddr = ""
