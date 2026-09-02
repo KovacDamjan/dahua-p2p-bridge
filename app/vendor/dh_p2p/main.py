@@ -326,28 +326,59 @@ def main(
 
         if os.getenv("P2P_WAIT_FOR_CHANNEL_RESPONSE", "0").strip() != "1":
             print(
-                "CHANNEL: proceeding to PTCP via relay agent without waiting "
-                "for p2p-channel HTTP response",
+                "CHANNEL: relay setup completed; waiting for p2p-channel "
+                "Server Nat Info",
                 flush=True,
             )
-            # SmartPSS completes relay-channel negotiation before sending the
-            # first PTCP SYN. The relay-channel request is sent to Easy4IP;
-            # its response is returned on the agent socket.
-            main_remote.rhost = main_server
-            main_remote.rport = main_port
-            main_remote.request(
-                f"/device/{serial}/relay-channel",
-                f"<body><agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
-                should_read=False,
-                pcs_request_id=pcs_request_id,
-            )
-            main_remote.rhost = agent_server
-            main_remote.rport = agent_port
-            main_remote.settimeout(45)
+            # SmartPSS sends 2NFPOST p2p-channel first, starts the relay
+            # agent, and only then consumes the pending 100 Trying followed by
+            # the final Server Nat Info response from the DS socket.
+            channel_remote.rhost = ds_server
+            channel_remote.rport = ds_port
+            channel_remote.settimeout(45)
             try:
-                relay_channel_response = main_remote.read(return_error=True)
+                nat_info_response = channel_remote.read(return_error=True)
+                while nat_info_response["code"] < 200:
+                    nat_info_response = channel_remote.read(return_error=True)
+                if nat_info_response["code"] >= 400:
+                    raise ConnectionError(
+                        "p2p-channel rejected: "
+                        + nat_info_response["status"]
+                    )
+                print(
+                    f"CHANNEL: received p2p-channel response "
+                    f"{nat_info_response['status']}",
+                    flush=True,
+                )
+
+                # SmartPSS authenticates relay-channel as a separate channel
+                # setup request; agentAddr alone is not sufficient.
+                relay_nonce = get_nonce()
+                relay_auth = get_auth(
+                    username, key, relay_nonce, randsalt
+                )
+                relay_channel_body = (
+                    f"<body>{relay_auth}<sVersion>1.1.0</sVersion>"
+                    f"<agentAddr>{agent_server}:{agent_port}</agentAddr></body>"
+                )
+
+                main_remote.rhost = main_server
+                main_remote.rport = main_port
+                main_remote.request(
+                    f"/device/{serial}/relay-channel",
+                    relay_channel_body,
+                    should_read=False,
+                    pcs_request_id=pcs_request_id,
+                )
+                main_remote.rhost = agent_server
+                main_remote.rport = agent_port
+                relay_channel_response = main_remote.read(
+                    return_error=True
+                )
                 while relay_channel_response["code"] < 200:
-                    relay_channel_response = main_remote.read(return_error=True)
+                    relay_channel_response = main_remote.read(
+                        return_error=True
+                    )
                 if relay_channel_response["code"] >= 400:
                     raise ConnectionError(
                         "relay-channel rejected: "
@@ -357,6 +388,7 @@ def main(
                     "CHANNEL: relay-channel negotiation completed",
                     flush=True,
                 )
+
                 main_remote.request_ptcp(b"\x00\x03\x01\x00")
                 relay_sync = main_remote.read_ptcp(timeout=8)
                 if relay_sync.body == b"\x00\x03\x01\x00":
@@ -384,6 +416,7 @@ def main(
                     flush=True,
                 )
             finally:
+                channel_remote.settimeout(None)
                 main_remote.settimeout(None)
 
         res = None
