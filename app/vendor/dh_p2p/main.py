@@ -289,7 +289,7 @@ def main(
             "data": {"body": {"LocalAddr": "127.0.0.1:0", "PubAddr": "127.0.0.1:0"}},
         }
     else:
-        pcs_request_id = __import__("uuid").uuid4().hex
+        pcs_request_id = relay_pcs_request_id
         print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
         channel_remote.rhost = ds_server
         channel_remote.rport = ds_port
