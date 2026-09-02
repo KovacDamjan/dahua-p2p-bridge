@@ -312,6 +312,10 @@ def main(
         last_channel_error = None
         channel_attempts = 5
         for attempt in range(1, channel_attempts + 1):
+            # Relay setup reuses the same socket and changes its destination;
+            # every retry must explicitly go back to the device server (DS).
+            channel_remote.rhost = ds_server
+            channel_remote.rport = ds_port
             if attempt > 1:
                 print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
                 channel_remote.request(
