@@ -69,14 +69,19 @@ async fn handle_client(
         }
         _ => {
             eprintln!(
-                "PTCP {service} realm {realm_id:08x} bind timed out; closing only this local client"
+                "PTCP {service} realm {realm_id:08x} bind timed out"
             );
             channels.lock().unwrap().remove(&realm_id);
             conn_channels.lock().unwrap().remove(&realm_id);
-            // A single RTSP probe can disappear while Surveillance Station
-            // opens several realms. Do not terminate the shared authenticated
-            // P2P session: other streams and subsequent clients can still use
-            // the relay. The client task ends without taking the camera offline.
+            // Keep the shared session when another local realm is still
+            // active. If this was the only realm, the upstream session is
+            // stale and must be rebuilt so the camera can reconnect.
+            let other_realms_active = !channels.lock().unwrap().is_empty();
+            if !other_realms_active {
+                eprintln!("PTCP no active realms remain; requesting full P2P reconnect");
+                std::process::exit(75);
+            }
+            eprintln!("PTCP another realm is active; closing only this client");
             return;
         }
     }
