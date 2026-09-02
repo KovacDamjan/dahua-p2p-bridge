@@ -60,7 +60,12 @@ async fn handle_client(
         conn_channels.lock().unwrap().remove(&realm_id);
         return;
     }
-    match timeout(Duration::from_secs(12), conn_rx).await {
+    let bind_timeout_seconds = std::env::var("P2P_BIND_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value >= 12)
+        .unwrap_or(45);
+    match timeout(Duration::from_secs(bind_timeout_seconds), conn_rx).await {
         Ok(Ok(true)) => {
             println!("PTCP {service} realm {realm_id:08x} connected");
             if persistent_onvif {
