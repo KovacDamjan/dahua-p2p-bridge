@@ -232,6 +232,7 @@ def main(
     print(f"CHANNEL: IpEncrptV2=true LocalAddrLen={len(laddr)}", flush=True)
     auth = get_auth(username, key, nonce, randsalt, laddr)
 
+    relay_pcs_request_id = __import__("uuid").uuid4().hex
     if transport != "relay":
         # SmartPSS registers a relay agent before requesting the P2P channel.
         # Without this ordering Easy4IP accepts the UDP request but never returns
@@ -247,7 +248,6 @@ def main(
         agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
         main_remote.rhost = agent_server
         main_remote.rport = int(agent_port)
-        relay_pcs_request_id = __import__("uuid").uuid4().hex
         main_remote.request(f"/relay/start/{token}", "<body><Client>:0</Client></body>", pcs_request_id=relay_pcs_request_id)
         main_remote.rhost = main_server
         main_remote.rport = main_port
