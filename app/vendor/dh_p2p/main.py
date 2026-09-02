@@ -330,18 +330,35 @@ def main(
                 "Server Nat Info",
                 flush=True,
             )
-            # SmartPSS sends 2NFPOST p2p-channel first, starts the relay
-            # agent, and only then consumes the pending 100 Trying followed by
-            # the final Server Nat Info response from the DS socket.
-            # The pending p2p-channel response is returned by the Easy4IP
-            # control server (:8800), not by the DS discovery endpoint (:8802).
-            channel_remote.rhost = main_server
-            channel_remote.rport = main_port
-            channel_remote.settimeout(45)
+            # SmartPSS receives Server Nat Info inside a PTCP frame
+            # from the relay agent. It is not a plain UDP/HTTP datagram.
+            main_remote.rhost = agent_server
+            main_remote.rport = agent_port
+            main_remote.settimeout(45)
             try:
-                nat_info_response = channel_remote.read(return_error=True)
+                nat_info_response = None
+                for _ in range(40):
+                    relay_packet = main_remote.read_ptcp(timeout=45)
+                    if b"Server Nat Info!" not in relay_packet.body:
+                        continue
+                    try:
+                        nat_info_response = parse_response(
+                            relay_packet.body.decode("utf-8")
+                        )
+                    except (UnicodeDecodeError, ValueError) as error:
+                        raise ConnectionError(
+                            f"Invalid PTCP Server Nat Info response: {error}"
+                        ) from error
+                    break
+                if nat_info_response is None:
+                    raise ConnectionError(
+                        "relay agent did not return PTCP Server Nat Info"
+                    )
                 while nat_info_response["code"] < 200:
-                    nat_info_response = channel_remote.read(return_error=True)
+                    relay_packet = main_remote.read_ptcp(timeout=45)
+                    nat_info_response = parse_response(
+                        relay_packet.body.decode("utf-8")
+                    )
                 if nat_info_response["code"] >= 400:
                     raise ConnectionError(
                         "p2p-channel rejected: "
@@ -349,7 +366,7 @@ def main(
                     )
                 print(
                     f"CHANNEL: received p2p-channel response "
-                    f"{nat_info_response['status']}",
+                    f"{nat_info_response['status']} via PTCP",
                     flush=True,
                 )
 
