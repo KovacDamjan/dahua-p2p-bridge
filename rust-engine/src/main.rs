@@ -69,20 +69,14 @@ async fn handle_client(
         }
         _ => {
             eprintln!(
-                "PTCP {service} realm {realm_id:08x} bind timed out"
+                "PTCP {service} realm {realm_id:08x} bind timed out; requesting full P2P reconnect"
             );
             channels.lock().unwrap().remove(&realm_id);
             conn_channels.lock().unwrap().remove(&realm_id);
-            // Keep the shared session when another local realm is still
-            // active. If this was the only realm, the upstream session is
-            // stale and must be rebuilt so the camera can reconnect.
-            let other_realms_active = !channels.lock().unwrap().is_empty();
-            if !other_realms_active {
-                eprintln!("PTCP no active realms remain; requesting full P2P reconnect");
-                std::process::exit(75);
-            }
-            eprintln!("PTCP another realm is active; closing only this client");
-            return;
+            // A missing CONN means the authenticated upstream tunnel is no
+            // longer usable. Rebuild it so the manager can reconnect the
+            // camera instead of leaving a dead RTSP session running.
+            std::process::exit(75);
         }
     }
 
