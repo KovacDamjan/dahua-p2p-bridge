@@ -379,7 +379,11 @@ def main(
 
     main_remote.rhost = relay_server
     main_remote.rport = relay_port
-    res = main_remote.request(\n            "/relay/agent",\n            f"<body><Dev>{serial}</Dev></body>",\n            pcs_request_id=relay_pcs_request_id,\n        )
+    res = main_remote.request(
+            "/relay/agent",
+            f"<body><Dev>{serial}</Dev></body>",
+            pcs_request_id=relay_pcs_request_id,
+        )
     token = res["data"]["body"]["Token"]
     agent_server, agent_port = res["data"]["body"]["Agent"].split(":")
     agent_port = int(agent_port)
