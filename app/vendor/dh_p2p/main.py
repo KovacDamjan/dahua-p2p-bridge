@@ -312,7 +312,7 @@ def main(
             p2p_channel_body,
             should_read=False,
             pcs_request_id=pcs_request_id,
-            request_method="2NFPOST",
+            request_method="NFPOST",
         )
         # SmartPSS keeps the initial p2p-channel CSeq for all retries,
         # while regenerating nonce/DevAuth/LocalAddr in the body.
@@ -458,7 +458,7 @@ def main(
                     should_read=False,
                     pcs_request_id=pcs_request_id,
                     request_cseq=p2p_request_cseq,
-                    request_method="2NFPOST",
+                    request_method="NFPOST",
                 )
             channel_remote.settimeout(45)
             try:
