@@ -313,6 +313,9 @@ def main(
             should_read=False,
             pcs_request_id=pcs_request_id,
         )
+        # SmartPSS keeps the initial p2p-channel CSeq for all retries,
+        # while regenerating nonce/DevAuth/LocalAddr in the body.
+        p2p_request_cseq = channel_remote.last_request_cseq
 
         # SmartPSS starts the relay-agent negotiation while the direct channel
         # response is pending on the separate DS socket.
@@ -334,6 +337,7 @@ def main(
                     p2p_channel_body,
                     should_read=False,
                     pcs_request_id=pcs_request_id,
+                    request_cseq=p2p_request_cseq,
                 )
             channel_remote.settimeout(45)
             try:
@@ -348,6 +352,11 @@ def main(
             finally:
                 channel_remote.settimeout(None)
 
+    if res is None:
+        raise ConnectionError(
+            f"Easy4IP did not return P2P channel details after "
+            f"{channel_attempts} attempts: {last_channel_error}"
+        )
 
     if res["code"] >= 400:
         print("Error:", res["status"])
