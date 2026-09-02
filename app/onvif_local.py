@@ -26,6 +26,13 @@ def _uri(handler, port: int, subtype: int) -> str:
     return f"rtsp://{_host(handler)}:{port}/cam/realmonitor?channel=1&subtype={subtype}"
 
 
+def _requested_subtype(data: bytes) -> int:
+    text = data.decode("utf-8", errors="ignore").lower()
+    token_match = re.search(r"<(?:[^:>]+:)?profiletoken[^>]*>\\s*([^<]+)", text)
+    token = token_match.group(1).strip() if token_match else ""
+    is_sub = "profile_sub" in token or "substream" in token or "videoencoder_sub" in text
+    return 1 if is_sub else 0
+
 def _action(data: bytes) -> str:
     body = re.search(rb"<(?:[^:>]+:)?Body(?:\s|>)", data)
     search = data[body.end():] if body else data
@@ -79,7 +86,8 @@ class _Handler(BaseHTTPRequestHandler):
 </trt:Profiles>
 </trt:GetProfilesResponse>"""
             elif action == "GetStreamUri":
-                subtype = 1 if any(token in request for token in (b"Profile_Sub", b"VideoEncoder_Sub", b"SubStream")) else 0
+                subtype = _requested_subtype(request)
+                print("[ONVIF] GetStreamUri profile={} subtype={}".format("Sub" if subtype else "Main", subtype), flush=True)
                 body = f"""<trt:GetStreamUriResponse><trt:MediaUri><tt:Uri>{html.escape(_uri(self, port, subtype))}</tt:Uri>
 <tt:InvalidAfterConnect>false</tt:InvalidAfterConnect><tt:InvalidAfterReboot>false</tt:InvalidAfterReboot><tt:Timeout>PT60S</tt:Timeout></trt:MediaUri></trt:GetStreamUriResponse>"""
             elif action == "GetSnapshotUri":
