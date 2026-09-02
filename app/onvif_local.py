@@ -28,7 +28,7 @@ def _uri(handler, port: int, subtype: int) -> str:
 
 def _requested_subtype(data: bytes) -> int:
     text = data.decode("utf-8", errors="ignore").lower()
-    token_match = re.search(r"<(?:[^:>]+:)?profiletoken[^>]*>\\s*([^<]+)", text)
+    token_match = re.search(r"<(?:[^:>]+:)?profiletoken[^>]*>\s*([^<]+)", text)
     token = token_match.group(1).strip() if token_match else ""
     is_sub = "profile_sub" in token or "substream" in token or "videoencoder_sub" in text
     return 1 if is_sub else 0
