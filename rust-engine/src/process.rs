@@ -60,6 +60,38 @@ fn replace_url_authorities(data: &[u8], config: &HttpRewriteConfig) -> Vec<u8> {
     output
 }
 
+fn debug_http(data: &[u8]) -> String {
+    let text = String::from_utf8_lossy(data).to_string();
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("password") || lower.contains("username") || lower.contains("soap") {
+        let mut redacted = text;
+        let re = regex::Regex::new(r#"(?i)(PasswordDigest\s*[=:]\s*["']?)[^"'\s<;]+"#).unwrap();
+        redacted = re.replace_all(&redacted, "$1***REDACTED***").to_string();
+        let re = regex::Regex::new(r#"(?i)(<[^>]*Password[^>]*>)[^<]*(</[^>]*Password>)"#).unwrap();
+        redacted = re.replace_all(&redacted, "$1***REDACTED***$2").to_string();
+        redacted
+    } else {
+        text
+    }
+}
+
+fn http_request_complete(data: &[u8]) -> bool {
+    let Some(header_end) = data.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return false;
+    };
+    let headers = String::from_utf8_lossy(&data[..header_end]);
+    let content_length = headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("content-length")
+            .then(|| value.trim().parse::<usize>().ok())
+            .flatten()
+    });
+    match content_length {
+        Some(length) => data.len() >= header_end + 4 + length,
+        None => true,
+    }
+}
+
 fn rewrite_http_response(data: &[u8], config: &HttpRewriteConfig) -> Vec<u8> {
     let Some(header_end) = data.windows(4).position(|window| window == b"\r\n\r\n") else {
         return replace_url_authorities(data, config);
@@ -107,10 +139,8 @@ pub async fn process_writer(
         if !response.is_empty() {
             let rewritten = rewrite_http_response(&response, &config);
             println!(
-                "Rewrote ONVIF response URLs to {}:{} ({} bytes)",
-                config.host,
-                config.onvif_port,
-                rewritten.len()
+                "ONVIF <<< {}",
+                debug_http(&rewritten)
             );
             let _ = writer.write_all(&rewritten).await;
         }
@@ -156,6 +186,7 @@ pub async fn process_reader(
     persistent_realm: bool,
 ) {
     let mut buf = [0u8; 4096];
+    let mut http_request = Vec::new();
 
     loop {
         let n = match reader.read(&mut buf).await {
@@ -187,6 +218,13 @@ pub async fn process_reader(
             }
         };
 
+        if persistent_realm {
+            http_request.extend_from_slice(&buf[..n]);
+            if http_request_complete(&http_request) {
+                println!("ONVIF >>> {}", debug_http(&http_request));
+                http_request.clear();
+            }
+        }
         dh_tx
             .send(PTCPEvent::Data(realm_id, buf[0..n].to_vec()))
             .await
