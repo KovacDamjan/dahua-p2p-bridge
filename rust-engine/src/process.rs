@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn normalizes_missing_delete_profile_to_success() {
-        let response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 8\r\n\r\nNoProfile".to_vec();
+        let response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 44\r\n\r\n<ter:NoProfile>Profile token does not exist</ter:NoProfile>".to_vec();
         let normalized = normalize_no_profile_delete_response(response);
         let text = String::from_utf8(normalized).unwrap();
         assert!(text.contains("HTTP/1.1 200 OK"));
