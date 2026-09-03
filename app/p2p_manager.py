@@ -97,12 +97,21 @@ class P2PManager:
             self._start_vendor_service(camera_id, worker)
         else:
             self._start_service(camera_id, worker, "rtsp")
-            worker.onvif_server = start_onvif(self.onvif_port_for(camera_id), worker.port)
+            worker.onvif_server = start_onvif(
+                self.onvif_port_for(camera_id),
+                worker.port,
+                logger=lambda message: self._append_worker_log(worker, message),
+            )
             worker.logs.append(
                 f"[ONVIF] Local ONVIF service listening on {self.onvif_port_for(camera_id)} "
                 "with MainStream and SubStream profiles"
             )
         return worker
+
+    def _append_worker_log(self, worker: WorkerState, message: str) -> None:
+        with self._lock:
+            worker.logs.append(message)
+            worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
 
     def _start_vendor_service(self, camera_id: int, worker: WorkerState) -> None:
         """Start one Wine worker with both device ports on one P2P session."""
