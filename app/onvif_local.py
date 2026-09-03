@@ -179,6 +179,16 @@ class _Handler(BaseHTTPRequestHandler):
 <tt:Info><tt:Name>eth0</tt:Name><tt:HwAddress>000000000000</tt:HwAddress><tt:MTU>1500</tt:MTU></tt:Info>
 <tt:IPv4><tt:Enabled>true</tt:Enabled><tt:Config><tt:DHCP>true</tt:DHCP></tt:Config></tt:IPv4>
 </tds:NetworkInterfaces></tds:GetNetworkInterfacesResponse>"""
+            elif action == "GetVideoSourceConfigurations":
+                body = """<trt:GetVideoSourceConfigurationsResponse>
+<trt:Configurations token="VideoSourceConfig_Main"><tt:Name>MainVideoSource</tt:Name><tt:UseCount>1</tt:UseCount><tt:SourceToken>VideoSource_1</tt:SourceToken><tt:Bounds x="0" y="0" width="3840" height="2160"/></trt:Configurations>
+<trt:Configurations token="VideoSourceConfig_Sub"><tt:Name>SubVideoSource</tt:Name><tt:UseCount>1</tt:UseCount><tt:SourceToken>VideoSource_1</tt:SourceToken><tt:Bounds x="0" y="0" width="704" height="576"/></trt:Configurations>
+</trt:GetVideoSourceConfigurationsResponse>"""
+            elif action == "GetVideoEncoderConfigurations":
+                body = """<trt:GetVideoEncoderConfigurationsResponse>
+<trt:Configurations token="VideoEncoder_Main"><tt:Name>MainEncoder</tt:Name><tt:UseCount>1</tt:UseCount><tt:Encoding>H264</tt:Encoding><tt:Resolution><tt:Width>3840</tt:Width><tt:Height>2160</tt:Height></tt:Resolution><tt:Quality>5</tt:Quality><tt:RateControl><tt:FrameRateLimit>25</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>8192</tt:BitrateLimit></tt:RateControl><tt:SessionTimeout>PT60S</tt:SessionTimeout></trt:Configurations>
+<trt:Configurations token="VideoEncoder_Sub"><tt:Name>SubEncoder</tt:Name><tt:UseCount>1</tt:UseCount><tt:Encoding>H264</tt:Encoding><tt:Resolution><tt:Width>704</tt:Width><tt:Height>576</tt:Height></tt:Resolution><tt:Quality>3</tt:Quality><tt:RateControl><tt:FrameRateLimit>10</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>1024</tt:BitrateLimit></tt:RateControl><tt:SessionTimeout>PT60S</tt:SessionTimeout></trt:Configurations>
+</trt:GetVideoEncoderConfigurationsResponse>"""
             elif action == "GetProfiles":
                 body = """<trt:GetProfilesResponse>
 <trt:Profiles token="Profile_Main" fixed="true"><tt:Name>MainStream</tt:Name>
