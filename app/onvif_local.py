@@ -95,8 +95,11 @@ class _Handler(BaseHTTPRequestHandler):
     server_version = "DahuaP2PBridgeONVIF/1.0"
     protocol_version = "HTTP/1.1"
 
+    def _log(self, message):
+        self.server.log("[ONVIF] " + message)
+
     def log_message(self, format, *args):
-        print("[ONVIF] HTTP " + (format % args), flush=True)
+        self._log("HTTP " + (format % args))
 
     def _is_onvif_path(self):
         return self.path.split("?", 1)[0] in (
@@ -131,9 +134,9 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_GET(self):
-        print("[ONVIF] GET {} headers={}".format(
+        self._log("GET {} headers={}".format(
             self.path, dict(self.headers.items())
-        ), flush=True)
+        ))
         if self._is_onvif_path():
             self._send_health()
             return
@@ -144,13 +147,11 @@ class _Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             request = self.rfile.read(length)
             action = _action(request, self.headers)
-            print("[ONVIF] {} {} action={}".format(
+            self._log("{} {} action={}".format(
                 self.command, self.path, action or "unknown"
-            ), flush=True)
-            print("[ONVIF] headers={}".format(
-                dict(self.headers.items())
-            ), flush=True)
-            print("[ONVIF] body={}".format(_debug_soap(request)), flush=True)
+            ))
+            self._log("headers={}".format(dict(self.headers.items())))
+            self._log("body={}".format(_debug_soap(request)))
             port = self.server.rtsp_port
             if action == "GetCapabilities":
                 body = f"""<tds:GetCapabilitiesResponse><tds:Capabilities>
@@ -191,7 +192,7 @@ class _Handler(BaseHTTPRequestHandler):
 </trt:GetProfilesResponse>"""
             elif action == "GetStreamUri":
                 subtype = _requested_subtype(request)
-                print("[ONVIF] GetStreamUri profile={} subtype={}".format("Sub" if subtype else "Main", subtype), flush=True)
+                    self._log("GetStreamUri profile={} subtype={}".format("Sub" if subtype else "Main", subtype))
                 body = f"""<trt:GetStreamUriResponse><trt:MediaUri><tt:Uri>{html.escape(_uri(self, port, subtype))}</tt:Uri>
 <tt:InvalidAfterConnect>false</tt:InvalidAfterConnect><tt:InvalidAfterReboot>false</tt:InvalidAfterReboot><tt:Timeout>PT60S</tt:Timeout></trt:MediaUri></trt:GetStreamUriResponse>"""
             elif action == "GetSnapshotUri":
@@ -215,7 +216,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(response)
         except Exception as error:
-            print("[ONVIF] request failed: {}".format(error), flush=True)
+            self._log("request failed: {}".format(error))
             self.send_error(500)
 
 
@@ -223,13 +224,20 @@ class LocalOnvifServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, rtsp_port):
+    def __init__(self, address, rtsp_port, logger=None):
         super().__init__(address, _Handler)
         self.rtsp_port = rtsp_port
+        self._logger = logger
+
+    def log(self, message):
+        if self._logger is not None:
+            self._logger(message)
+        else:
+            print(message, flush=True)
 
 
-def start_onvif(port: int, rtsp_port: int):
-    server = LocalOnvifServer(("0.0.0.0", port), rtsp_port)
+def start_onvif(port: int, rtsp_port: int, logger=None):
+    server = LocalOnvifServer(("0.0.0.0", port), rtsp_port, logger=logger)
     thread = threading.Thread(target=server.serve_forever, name=f"onvif-{port}", daemon=True)
     thread.start()
     return server
