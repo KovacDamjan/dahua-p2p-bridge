@@ -138,6 +138,22 @@ class _Handler(BaseHTTPRequestHandler):
                 body = """<tds:GetDeviceInformationResponse><tds:Manufacturer>Dahua</tds:Manufacturer>
 <tds:Model>Dahua P2P Bridge</tds:Model><tds:FirmwareVersion>6.7.33</tds:FirmwareVersion>
 <tds:SerialNumber> P2P </tds:SerialNumber><tds:HardwareId>P2P</tds:HardwareId></tds:GetDeviceInformationResponse>"""
+            elif action == "GetServices":
+                body = f"""<tds:GetServicesResponse>
+<tds:Service><tds:Namespace>{TDS}</tds:Namespace><tds:XAddr>http://{_host(self)}:{self.server.server_port}/onvif/device_service</tds:XAddr><tds:Version><tt:Major>2</tt:Major><tt:Minor>0</tt:Minor></tds:Version></tds:Service>
+<tds:Service><tds:Namespace>{TRT}</tds:Namespace><tds:XAddr>http://{_host(self)}:{self.server.server_port}/onvif/media_service</tds:XAddr><tds:Version><tt:Major>2</tt:Major><tt:Minor>0</tt:Minor></tds:Version></tds:Service>
+<tds:Service><tds:Namespace>{TEV}</tds:Namespace><tds:XAddr>http://{_host(self)}:{self.server.server_port}/onvif/events_service</tds:XAddr><tds:Version><tt:Major>2</tt:Major><tt:Minor>0</tt:Minor></tds:Version></tds:Service>
+</tds:GetServicesResponse>"""
+            elif action == "GetScopes":
+                body = """<tds:GetScopesResponse>
+<tds:Scopes><tt:ScopeDef>Fixed</tt:ScopeDef><tt:ScopeItem>onvif://www.onvif.org/type/video_encoder</tt:ScopeItem></tds:Scopes>
+<tds:Scopes><tt:ScopeDef>Fixed</tt:ScopeDef><tt:ScopeItem>onvif://www.onvif.org/type/audio_encoder</tt:ScopeItem></tds:Scopes>
+</tds:GetScopesResponse>"""
+            elif action == "GetNetworkInterfaces":
+                body = """<tds:GetNetworkInterfacesResponse><tds:NetworkInterfaces token="0" enabled="true">
+<tt:Info><tt:Name>eth0</tt:Name><tt:HwAddress>000000000000</tt:HwAddress><tt:MTU>1500</tt:MTU></tt:Info>
+<tt:IPv4><tt:Enabled>true</tt:Enabled><tt:Config><tt:DHCP>true</tt:DHCP></tt:Config></tt:IPv4>
+</tds:NetworkInterfaces></tds:GetNetworkInterfacesResponse>"""
             elif action == "GetProfiles":
                 body = """<trt:GetProfilesResponse>
 <trt:Profiles token="Profile_Main" fixed="true"><tt:Name>MainStream</tt:Name>
