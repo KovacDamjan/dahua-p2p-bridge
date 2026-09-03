@@ -117,6 +117,7 @@ class P2PManager:
             HOME=os.getenv("HOME", "/tmp"),
             P2P_VENDOR_DLL_DIR=os.getenv("P2P_VENDOR_DLL_DIR", "/vendor"),
             PYTHONUNBUFFERED="1",
+            P2P_LAZY_CONNECT=os.getenv("P2P_LAZY_CONNECT", "1"),
         )
         worker_path = os.getenv(
             "P2P_VENDOR_WORKER", "/usr/local/lib/p2p_relay_multi.exe"
