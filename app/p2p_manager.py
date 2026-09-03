@@ -64,7 +64,7 @@ class WorkerState:
 
 
 class P2PManager:
-    """Owns one shared upstream P2P session for RTSP and ONVIF per camera."""
+    """Owns independent upstream P2P sessions for RTSP and ONVIF per camera."""
 
     def __init__(self, first_port: int = 15540, max_cameras: int = 30):
         self.first_port = first_port
@@ -94,10 +94,11 @@ class P2PManager:
         if os.getenv("P2P_BACKEND", "").lower() == "vendor":
             self._start_vendor_service(camera_id, worker)
         else:
-            # Use the authenticated P2P engine for both RTSP and ONVIF.
-            # This lets Synology read the camera's real profiles, codecs and
-            # resolutions instead of receiving a locally fabricated profile list.
+            # Keep RTSP and ONVIF on separate authenticated P2P sessions.
+            # A high-bitrate RTSP stream must not block Synology's ONVIF
+            # discovery, authentication, or event requests.
             self._start_service(camera_id, worker, "rtsp")
+            self._start_service(camera_id, worker, "onvif")
         return worker
 
     def _append_worker_log(self, worker: WorkerState, message: str) -> None:
@@ -142,8 +143,6 @@ class P2PManager:
 
     def _start_service(self, camera_id: int, worker: WorkerState, service: str) -> None:
         bind_port = worker.port if service == "rtsp" else self.onvif_port_for(camera_id)
-        if service == "rtsp":
-            worker.services.pop("onvif", None)
         env = os.environ.copy()
         env.update(
             P2P_USERNAME=worker.camera["username"],
@@ -163,10 +162,9 @@ class P2PManager:
             "--type",
             "1",
             "--service",
-            # The RTSP worker also exposes the authenticated camera ONVIF
-            # endpoint on worker.port + 1000.  The Rust engine proxies the
-            # real camera responses and rewrites only returned local URLs.
-            "both" if service == "rtsp" else service,
+            # RTSP and ONVIF deliberately use independent authenticated
+            # P2P sessions so video traffic cannot delay ONVIF requests.
+            service,
             "--bind-port",
             str(bind_port),
             "--public-rtsp-port",
@@ -185,7 +183,7 @@ class P2PManager:
         )
         state = ServiceState(process=process, service=service)
         worker.services[service] = state
-        worker.logs.append("[P2P] Starting shared RTSP + ONVIF P2P session")
+        worker.logs.append(f"[P2P] Starting independent {service.upper()} P2P session")
         worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
         threading.Thread(
             target=self._read_output,
@@ -219,11 +217,6 @@ class P2PManager:
                     state.last_error = None
                     if line == "Ready to connect!":
                         state.online_since = time.monotonic()
-                    if state.service == "rtsp" and "onvif" not in worker.services and os.getenv("P2P_BACKEND", "").lower() != "vendor":
-                        worker.services["onvif"] = state
-                        worker.logs.append(
-                            "[ONVIF] Sharing the authenticated RTSP P2P session"
-                        )
                 elif "optional ONVIF channel unavailable" in line:
                     if "onvif" in worker.services:
                         worker.services["onvif"].status = "error"
