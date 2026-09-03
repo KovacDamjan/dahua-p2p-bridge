@@ -60,19 +60,34 @@ fn replace_url_authorities(data: &[u8], config: &HttpRewriteConfig) -> Vec<u8> {
     output
 }
 
-fn debug_http(data: &[u8]) -> String {
-    let text = String::from_utf8_lossy(data).to_string();
-    let lower = text.to_ascii_lowercase();
-    if lower.contains("password") || lower.contains("username") || lower.contains("soap") {
-        let mut redacted = text;
-        let re = regex::Regex::new(r#"(?i)(PasswordDigest\s*[=:]\s*["']?)[^"'\s<;]+"#).unwrap();
-        redacted = re.replace_all(&redacted, "$1***REDACTED***").to_string();
-        let re = regex::Regex::new(r#"(?i)(<[^>]*Password[^>]*>)[^<]*(</[^>]*Password>)"#).unwrap();
-        redacted = re.replace_all(&redacted, "$1***REDACTED***$2").to_string();
-        redacted
-    } else {
-        text
+fn redact_http_text(mut text: String) -> String {
+    for marker in ["PasswordDigest=\\"", "PasswordDigest='"] {
+        let mut search_from = 0;
+        while let Some(relative) = text[search_from..].find(marker) {
+            let value_start = search_from + relative + marker.len();
+            let value_end = text[value_start..]
+                .find(|character: char| character == '"' || character == '\'' || character.is_whitespace() || character == '<' || character == ';')
+                .map(|offset| value_start + offset)
+                .unwrap_or(text.len());
+            text.replace_range(value_start..value_end, "***REDACTED***");
+            search_from = value_start + "***REDACTED***".len();
+        }
     }
+    let mut search_from = 0;
+    while let Some(relative) = text[search_from..].to_ascii_lowercase().find("<wsse:password") {
+        let tag_start = search_from + relative;
+        let Some(open_end_relative) = text[tag_start..].find('>') else { break; };
+        let value_start = tag_start + open_end_relative + 1;
+        let Some(close_relative) = text[value_start..].to_ascii_lowercase().find("</wsse:password") else { break; };
+        let value_end = value_start + close_relative;
+        text.replace_range(value_start..value_end, "***REDACTED***");
+        search_from = value_start + "***REDACTED***".len();
+    }
+    text
+}
+
+fn debug_http(data: &[u8]) -> String {
+    redact_http_text(String::from_utf8_lossy(data).to_string())
 }
 
 fn http_request_complete(data: &[u8]) -> bool {
