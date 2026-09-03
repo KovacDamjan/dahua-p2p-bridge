@@ -233,8 +233,18 @@ impl PTCPPacket {
 
     fn try_print_data(&self) {
         if let PTCPBody::Payload(p) = &self.body {
-            if p.data.len() > 4 && p.data.iter().all(|b| *b < 0x80) {
+            let looks_like_http = p.data.windows(4).any(|window| window == b"\\r\\n\\r\\n")
+                || p.data.starts_with(b"GET ")
+                || p.data.starts_with(b"POST ")
+                || p.data.starts_with(b"PUT ")
+                || p.data.starts_with(b"DELETE ")
+                || p.data.starts_with(b"HTTP/");
+            if looks_like_http {
                 println!("{}", String::from_utf8_lossy(&p.data));
+            } else {
+                // Video and PTCP payloads are binary. Do not dump them into the
+                // status log: that hides the useful ONVIF/HTTP request trace.
+                println!("PTCP payload: {} bytes (binary)", p.data.len());
             }
         }
     }
