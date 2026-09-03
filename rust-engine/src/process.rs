@@ -107,9 +107,22 @@ fn http_request_complete(data: &[u8]) -> bool {
     }
 }
 
+fn normalize_no_profile_delete_response(data: Vec<u8>) -> Vec<u8> {
+    let text = String::from_utf8_lossy(&data);
+    if !text.contains("Profile token does not exist") || !text.contains("ter:NoProfile") {
+        return data;
+    }
+    let body = br#"<?xml version="1.0" encoding="utf-8" standalone="yes" ?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><DeleteProfileResponse xmlns="http://www.onvif.org/ver10/media/wsdl"/></s:Body></s:Envelope>"#;
+    let mut output = b"HTTP/1.1 200 OK\r\nContent-Type: application/soap+xml; charset=utf-8\r\nConnection: close\r\nContent-Length: ".to_vec();
+    output.extend_from_slice(body.len().to_string().as_bytes());
+    output.extend_from_slice(b"\r\n\r\n");
+    output.extend_from_slice(body);
+    output
+}
+
 fn rewrite_http_response(data: &[u8], config: &HttpRewriteConfig) -> Vec<u8> {
     let Some(header_end) = data.windows(4).position(|window| window == b"\r\n\r\n") else {
-        return replace_url_authorities(data, config);
+        return normalize_no_profile_delete_response(replace_url_authorities(data, config));
     };
     let body = replace_url_authorities(&data[header_end + 4..], config);
     let header_text = String::from_utf8_lossy(&data[..header_end]);
@@ -152,7 +165,7 @@ pub async fn process_writer(
             }
         }
         if !response.is_empty() {
-            let rewritten = rewrite_http_response(&response, &config);
+            let rewritten = normalize_no_profile_delete_response(rewrite_http_response(&response, &config));
             println!(
                 "ONVIF <<< {}",
                 debug_http(&rewritten)
@@ -358,6 +371,15 @@ mod tests {
         assert!(rewritten.contains("http://www.w3.org/2003/05/soap-envelope"));
         assert!(rewritten.contains("http://192.168.1.2:16540/onvif/device_service"));
         assert!(rewritten.contains("rtsp://192.168.1.2:15540/cam/realmonitor"));
+    }
+
+    #[test]
+    fn normalizes_missing_delete_profile_to_success() {
+        let response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 8\r\n\r\nNoProfile".to_vec();
+        let normalized = normalize_no_profile_delete_response(response);
+        let text = String::from_utf8(normalized).unwrap();
+        assert!(text.contains("HTTP/1.1 200 OK"));
+        assert!(text.contains("DeleteProfileResponse"));
     }
 
     #[test]
