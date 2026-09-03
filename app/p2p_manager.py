@@ -5,8 +5,6 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from app.onvif_local import start_onvif
-
 LOG_HISTORY_LIMIT = max(100, int(os.getenv("P2P_LOG_HISTORY", "1000")))
 LOG_STATUS_LIMIT = max(20, int(os.getenv("P2P_LOG_STATUS_LINES", "500")))
 TRANSIENT_RETRY_SECONDS = max(1, int(os.getenv("P2P_TRANSIENT_RETRY_SECONDS", "60")))
@@ -96,16 +94,10 @@ class P2PManager:
         if os.getenv("P2P_BACKEND", "").lower() == "vendor":
             self._start_vendor_service(camera_id, worker)
         else:
+            # Use the authenticated P2P engine for both RTSP and ONVIF.
+            # This lets Synology read the camera's real profiles, codecs and
+            # resolutions instead of receiving a locally fabricated profile list.
             self._start_service(camera_id, worker, "rtsp")
-            worker.onvif_server = start_onvif(
-                self.onvif_port_for(camera_id),
-                worker.port,
-                logger=lambda message: self._append_worker_log(worker, message),
-            )
-            worker.logs.append(
-                f"[ONVIF] Local ONVIF service listening on {self.onvif_port_for(camera_id)} "
-                "with MainStream and SubStream profiles"
-            )
         return worker
 
     def _append_worker_log(self, worker: WorkerState, message: str) -> None:
@@ -171,7 +163,10 @@ class P2PManager:
             "--type",
             "1",
             "--service",
-            "rtsp" if service == "rtsp" else service,
+            # The RTSP worker also exposes the authenticated camera ONVIF
+            # endpoint on worker.port + 1000.  The Rust engine proxies the
+            # real camera responses and rewrites only returned local URLs.
+            "both" if service == "rtsp" else service,
             "--bind-port",
             str(bind_port),
             "--public-rtsp-port",
