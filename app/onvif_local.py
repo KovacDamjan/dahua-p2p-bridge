@@ -53,11 +53,25 @@ def _requested_subtype(data: bytes) -> int:
     )
     return 1 if is_sub else 0
 
-def _action(data: bytes) -> str:
+def _action(data: bytes, headers=None) -> str:
     body = re.search(rb"<(?:[^:>]+:)?Body(?:\s|>)", data)
     search = data[body.end():] if body else data
     match = re.search(rb"<(?:[^:>]+:)?([A-Za-z0-9]+)(?:\s|>)", search)
-    return match.group(1).decode() if match else ""
+    if match:
+        return match.group(1).decode()
+    # Some ONVIF clients identify the SOAP operation through HTTP headers.
+    if headers is not None:
+        soap_action = headers.get("SOAPAction", "")
+        if not soap_action:
+            content_type = headers.get("Content-Type", "")
+            action_match = re.search(r"(?:^|[;\s])action\s*=\s*[\"']?([^;\"']+)", content_type, re.I)
+            soap_action = action_match.group(1) if action_match else ""
+        operation = soap_action.strip().strip("\"'").rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+        operation = operation.removesuffix("Request")
+        if re.fullmatch(r"[A-Za-z0-9]+", operation):
+            return operation
+    return ""
+
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -109,7 +123,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             request = self.rfile.read(length)
-            action = _action(request)
+            action = _action(request, self.headers)
             print("[ONVIF] {} {} action={}".format(
                 self.command, self.path, action or "unknown"
             ), flush=True)
