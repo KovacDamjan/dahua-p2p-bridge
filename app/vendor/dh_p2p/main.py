@@ -99,6 +99,29 @@ def main(
             ]
         )
 
+    lazy_connect = os.getenv("P2P_LAZY_CONNECT", "0").strip().lower() in (
+        "1", "true", "yes", "on"
+    )
+    if lazy_connect:
+        listeners = []
+        if service in ("both", "rtsp"):
+            listeners.append(socketserver)
+        if service in ("both", "onvif"):
+            listeners.append(onvif_socketserver)
+        if listeners:
+            print(
+                "Waiting for the first local client request before establishing P2P",
+                flush=True,
+            )
+            while True:
+                readable, _, _ = select.select(listeners, [], [], 1.0)
+                if readable:
+                    print(
+                        "Local client request received; establishing P2P channel",
+                        flush=True,
+                    )
+                    break
+
     fallback_servers = os.getenv(
         "P2P_MAIN_SERVERS",
         "www.easy4ipcloud.com,146.235.211.50,146.235.223.187,"
