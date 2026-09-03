@@ -74,6 +74,23 @@ def _action(data: bytes, headers=None) -> str:
 
 
 
+def _debug_soap(data: bytes) -> str:
+    text = data.decode("utf-8", errors="replace")
+    text = re.sub(
+        r"(<(?:[^:>]+:)?Password(?:Digest)?[^>]*>).*?(</(?:[^:>]+:)?Password(?:Digest)?>)",
+        r"\1***REDACTED***\2",
+        text,
+        flags=re.I | re.S,
+    )
+    text = re.sub(
+        r"(X-WSSE:\s*UsernameToken[^\\r\\n]*PasswordDigest=\\")([^\\"]+)",
+        r"\1***REDACTED***",
+        text,
+        flags=re.I,
+    )
+    return text
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "DahuaP2PBridgeONVIF/1.0"
     protocol_version = "HTTP/1.1"
@@ -127,6 +144,10 @@ class _Handler(BaseHTTPRequestHandler):
             print("[ONVIF] {} {} action={}".format(
                 self.command, self.path, action or "unknown"
             ), flush=True)
+            print("[ONVIF] headers={}".format(
+                dict(self.headers.items())
+            ), flush=True)
+            print("[ONVIF] body={}".format(_debug_soap(request)), flush=True)
             port = self.server.rtsp_port
             if action == "GetCapabilities":
                 body = f"""<tds:GetCapabilitiesResponse><tds:Capabilities>
