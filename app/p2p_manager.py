@@ -152,6 +152,10 @@ class P2PManager:
                 "P2P_IDLE_RECONNECT_SECONDS", "0"
             ),
             PYTHONUNBUFFERED="1",
+            P2P_SERVICE=service,
+            P2P_UDP_RECEIVE_BUFFER=os.getenv(
+                "P2P_UDP_RECEIVE_BUFFER", "33554432"
+            ),
         )
         transport = os.getenv("P2P_TRANSPORT", "direct").strip().lower()
         if transport not in ("direct", "relay"):
