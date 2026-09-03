@@ -148,7 +148,11 @@ async fn main() {
     // PTCP datagrams. The default Linux receive queue is too small and causes
     // the ordered PTCP reader to wait forever for packets already discarded
     // by the kernel.
-    let requested_recv_buffer = 8 * 1024 * 1024;
+    let requested_recv_buffer = std::env::var("P2P_UDP_RECEIVE_BUFFER")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value >= 64 * 1024)
+        .unwrap_or(32 * 1024 * 1024);
     if let Err(error) = udp_socket.set_recv_buffer_size(requested_recv_buffer) {
         eprintln!("PTCP UDP receive buffer request failed: {error}");
     }
@@ -173,13 +177,18 @@ async fn main() {
         .expect("set HTTP listener nonblocking");
     let http_listener = TcpListener::from_std(http_listener_std).expect("adopt HTTP listener");
 
-    let session = PTCPSession::from_state(
+    let mut session = PTCPSession::from_state(
         args.session_sent,
         args.session_recv,
         args.session_count,
         args.session_id,
         args.session_rmid,
     );
+    let allow_gap_skip = std::env::var("P2P_SERVICE")
+        .map(|service| service.to_ascii_lowercase() != "rtsp")
+        .unwrap_or(true);
+    session.set_allow_gap_skip(allow_gap_skip);
+    println!("PTCP gap policy: {}", if allow_gap_skip { "recovery-skip" } else { "strict-ordering" });
     let (dh_tx, dh_rx) = mpsc::channel::<PTCPEvent>(128);
     let session = Arc::new(Mutex::new(session));
     let channels = Arc::new(Mutex::new(HashMap::<u32, mpsc::UnboundedSender<Vec<u8>>>::new()));
