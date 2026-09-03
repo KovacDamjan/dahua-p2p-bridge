@@ -28,6 +28,24 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
 app = FastAPI(title="Dahua P2P Bridge", version="0.4.20")
 security = HTTPBasic(auto_error=False)
+
+
+@app.middleware("http")
+async def log_http_requests(request: Request, call_next):
+    client = request.client.host if request.client else "unknown"
+    client_port = request.client.port if request.client else 0
+    query = ("?" + request.url.query) if request.url.query else ""
+    print(
+        f"[HTTP] {client}:{client_port} {request.method} {request.url.path}{query}",
+        flush=True,
+    )
+    response = await call_next(request)
+    print(
+        f"[HTTP] response {response.status_code} "
+        f"{request.method} {request.url.path}",
+        flush=True,
+    )
+    return response
 p2p_manager = P2PManager()
 
 
