@@ -259,6 +259,8 @@ pub struct PTCPSession {
     pending: HashMap<u32, PTCPPacket>,
     gap_packets: usize,
     sent_window: VecDeque<TrackedPacket>,
+    // Never skip bytes in RTSP video; doing so corrupts H264/H265 frames.
+    allow_gap_skip: bool,
 }
 
 struct TrackedPacket {
@@ -283,6 +285,7 @@ impl PTCPSession {
             pending: HashMap::new(),
             gap_packets: 0,
             sent_window: VecDeque::new(),
+            allow_gap_skip: true,
         }
     }
 
@@ -296,7 +299,12 @@ impl PTCPSession {
             pending: HashMap::new(),
             gap_packets: 0,
             sent_window: VecDeque::new(),
+            allow_gap_skip: true,
         }
+    }
+
+    pub fn set_allow_gap_skip(&mut self, allow: bool) {
+        self.allow_gap_skip = allow;
     }
 
     pub fn send(&mut self, body: PTCPBody) -> PTCPPacket {
@@ -379,7 +387,7 @@ impl PTCPSession {
         // Acknowledge only the last contiguous byte while the gap is short so
         // the camera can retransmit it.  Advance after sustained loss to avoid
         // freezing the complete RTSP session forever.
-        if is_recovery_command || self.gap_packets >= GAP_PACKET_LIMIT {
+        if self.allow_gap_skip && (is_recovery_command || self.gap_packets >= GAP_PACKET_LIMIT) {
             let next_start = self
                 .pending
                 .keys()
