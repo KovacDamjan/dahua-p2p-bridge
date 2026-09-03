@@ -6,6 +6,9 @@ import os
 import secrets
 import sqlite3
 import time
+import xml.etree.ElementTree as ET
+
+import httpx
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
@@ -319,6 +322,59 @@ def test_camera(camera_id: int):
     except (InvalidToken, ValueError) as error:
         raise HTTPException(400, str(error))
     return {"status": state.status, "port": state.port}
+
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _onvif_text(root: ET.Element, name: str) -> str | None:
+    for node in root.iter():
+        if _local_name(node.tag) == name and node.text:
+            return node.text.strip()
+    return None
+
+
+@app.get("/api/cameras/{camera_id}/capabilities", dependencies=[Depends(require_auth)])
+def camera_capabilities(camera_id: int):
+    with db() as connection:
+        row = connection.execute("SELECT * FROM cameras WHERE id=?", (camera_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Camera not found")
+    if row["vendor"] not in ("dahua", "policetech"):
+        raise HTTPException(501, "ONVIF capabilities are not implemented for this vendor")
+    password = cipher().decrypt(row["password_enc"].encode()).decode()
+    url = f"http://127.0.0.1:{p2p_manager.onvif_port_for(camera_id)}/onvif/device_service"
+    envelope = """<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body>
+<trt:GetProfiles xmlns:trt="http://www.onvif.org/ver10/media/wsdl"/>
+</s:Body></s:Envelope>"""
+    try:
+        with httpx.Client(auth=httpx.DigestAuth(row["username"], password), timeout=12.0) as client:
+            response = client.post(url, content=envelope.encode(), headers={"Content-Type": "application/soap+xml"})
+            response.raise_for_status()
+        root = ET.fromstring(response.content)
+        profiles = []
+        for node in root.iter():
+            if _local_name(node.tag) == "Profiles":
+                encoder = next((x for x in node.iter() if _local_name(x.tag) == "VideoEncoderConfiguration"), None)
+                resolution = next((x for x in encoder.iter() if _local_name(x.tag) == "Resolution"), None) if encoder is not None else None
+                profiles.append({
+                    "token": node.attrib.get("token"),
+                    "name": _onvif_text(node, "Name"),
+                    "codec": _onvif_text(encoder, "Encoding") if encoder is not None else None,
+                    "width": _onvif_text(resolution, "Width") if resolution is not None else None,
+                    "height": _onvif_text(resolution, "Height") if resolution is not None else None,
+                    "fps": _onvif_text(encoder, "FrameRateLimit") if encoder is not None else None,
+                    "bitrate": _onvif_text(encoder, "BitrateLimit") if encoder is not None else None,
+                })
+        return {"camera_id": camera_id, "serial": row["serial"], "profiles": profiles, "streams": [
+            {"name": "Main", "subtype": 0, "uri": rtsp_uri(camera_id, row["channel"], 0)},
+            {"name": "Sub", "subtype": 1, "uri": rtsp_uri(camera_id, row["channel"], 1)},
+        ]}
+    except (httpx.HTTPError, ET.ParseError, ValueError, OSError) as error:
+        raise HTTPException(502, f"ONVIF capabilities failed: {error}") from error
 
 
 @app.get("/api/cameras/{camera_id}/status", dependencies=[Depends(require_auth)])
