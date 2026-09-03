@@ -192,7 +192,7 @@ class _Handler(BaseHTTPRequestHandler):
 </trt:GetProfilesResponse>"""
             elif action == "GetStreamUri":
                 subtype = _requested_subtype(request)
-                    self._log("GetStreamUri profile={} subtype={}".format("Sub" if subtype else "Main", subtype))
+                self._log("GetStreamUri profile={} subtype={}".format("Sub" if subtype else "Main", subtype))
                 body = f"""<trt:GetStreamUriResponse><trt:MediaUri><tt:Uri>{html.escape(_uri(self, port, subtype))}</tt:Uri>
 <tt:InvalidAfterConnect>false</tt:InvalidAfterConnect><tt:InvalidAfterReboot>false</tt:InvalidAfterReboot><tt:Timeout>PT60S</tt:Timeout></trt:MediaUri></trt:GetStreamUriResponse>"""
             elif action == "GetSnapshotUri":
