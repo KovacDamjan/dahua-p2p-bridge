@@ -189,6 +189,14 @@ class _Handler(BaseHTTPRequestHandler):
 <trt:Configurations token="VideoEncoder_Main"><tt:Name>MainEncoder</tt:Name><tt:UseCount>1</tt:UseCount><tt:Encoding>H264</tt:Encoding><tt:Resolution><tt:Width>3840</tt:Width><tt:Height>2160</tt:Height></tt:Resolution><tt:Quality>5</tt:Quality><tt:RateControl><tt:FrameRateLimit>25</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>8192</tt:BitrateLimit></tt:RateControl><tt:SessionTimeout>PT60S</tt:SessionTimeout></trt:Configurations>
 <trt:Configurations token="VideoEncoder_Sub"><tt:Name>SubEncoder</tt:Name><tt:UseCount>1</tt:UseCount><tt:Encoding>H264</tt:Encoding><tt:Resolution><tt:Width>704</tt:Width><tt:Height>576</tt:Height></tt:Resolution><tt:Quality>3</tt:Quality><tt:RateControl><tt:FrameRateLimit>10</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>1024</tt:BitrateLimit></tt:RateControl><tt:SessionTimeout>PT60S</tt:SessionTimeout></trt:Configurations>
 </trt:GetVideoEncoderConfigurationsResponse>"""
+            elif action == "CreateProfile":
+                body = """<trt:CreateProfileResponse><trt:Profile token="Profile_SynoTest">
+<tt:Name>SynoTestProfile</tt:Name>
+<tt:VideoSourceConfiguration token="VideoSourceConfig_Main"><tt:Name>MainVideoSource</tt:Name><tt:UseCount>1</tt:UseCount><tt:SourceToken>VideoSource_1</tt:SourceToken><tt:Bounds x="0" y="0" width="3840" height="2160"/></tt:VideoSourceConfiguration>
+<tt:VideoEncoderConfiguration token="VideoEncoder_Main"><tt:Name>MainEncoder</tt:Name><tt:UseCount>1</tt:UseCount><tt:Encoding>H264</tt:Encoding><tt:Resolution><tt:Width>3840</tt:Width><tt:Height>2160</tt:Height></tt:Resolution><tt:Quality>5</tt:Quality><tt:RateControl><tt:FrameRateLimit>25</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>8192</tt:BitrateLimit></tt:RateControl><tt:SessionTimeout>PT60S</tt:SessionTimeout></tt:VideoEncoderConfiguration>
+</trt:Profile></trt:CreateProfileResponse>"""
+            elif action == "DeleteProfile":
+                body = "<trt:DeleteProfileResponse/>"
             elif action == "GetProfiles":
                 body = """<trt:GetProfilesResponse>
 <trt:Profiles token="Profile_Main" fixed="true"><tt:Name>MainStream</tt:Name>
