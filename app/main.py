@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import sqlite3
+import subprocess
 import time
 import xml.etree.ElementTree as ET
 
@@ -15,7 +16,7 @@ from typing import Literal
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
@@ -375,6 +376,56 @@ def camera_capabilities(camera_id: int):
         ]}
     except (httpx.HTTPError, ET.ParseError, ValueError, OSError) as error:
         raise HTTPException(502, f"ONVIF capabilities failed: {error}") from error
+
+
+
+@app.get("/api/cameras/{camera_id}/live", dependencies=[Depends(require_auth)])
+def live_view(camera_id: int, subtype: int = 0):
+    if subtype not in (0, 1):
+        raise HTTPException(400, "Subtype must be 0 or 1")
+    with db() as connection:
+        row = connection.execute("SELECT * FROM cameras WHERE id=?", (camera_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Camera not found")
+    if row["vendor"] not in ("dahua", "policetech"):
+        raise HTTPException(501, "Live view is not implemented for this vendor")
+    uri = rtsp_uri(camera_id, row["channel"], subtype).replace("NAS-IP", "127.0.0.1")
+    try:
+        process = subprocess.Popen(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-rtsp_transport", "tcp", "-i", uri,
+                "-an", "-vf", "fps=10", "-q:v", "5",
+                "-f", "mpjpeg", "pipe:1",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(503, "FFmpeg is not installed in the bridge image") from error
+
+    def frames():
+        try:
+            assert process.stdout is not None
+            while True:
+                chunk = process.stdout.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+
+    return StreamingResponse(
+        frames(),
+        media_type="multipart/x-mixed-replace; boundary=ffmpeg",
+        headers={"Cache-Control": "no-store", "X-Stream-Subtype": str(subtype)},
+    )
 
 
 @app.get("/api/cameras/{camera_id}/status", dependencies=[Depends(require_auth)])
