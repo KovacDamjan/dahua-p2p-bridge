@@ -95,8 +95,8 @@ class _Handler(BaseHTTPRequestHandler):
     server_version = "DahuaP2PBridgeONVIF/1.0"
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, *_args):
-        return
+    def log_message(self, format, *args):
+        print("[ONVIF] HTTP " + (format % args), flush=True)
 
     def _is_onvif_path(self):
         return self.path.split("?", 1)[0] in (
@@ -131,6 +131,9 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_GET(self):
+        print("[ONVIF] GET {} headers={}".format(
+            self.path, dict(self.headers.items())
+        ), flush=True)
         if self._is_onvif_path():
             self._send_health()
             return
