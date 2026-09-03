@@ -83,7 +83,7 @@ def _debug_soap(data: bytes) -> str:
         flags=re.I | re.S,
     )
     text = re.sub(
-        r"(X-WSSE:\s*UsernameToken[^\\r\\n]*PasswordDigest=\\")([^\\"]+)",
+        r'(X-WSSE:\s*UsernameToken[^\r\n]*PasswordDigest=")([^"]+)',
         r"\1***REDACTED***",
         text,
         flags=re.I,
