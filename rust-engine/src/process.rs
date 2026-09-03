@@ -61,7 +61,7 @@ fn replace_url_authorities(data: &[u8], config: &HttpRewriteConfig) -> Vec<u8> {
 }
 
 fn redact_http_text(mut text: String) -> String {
-    for marker in ["PasswordDigest=\\"", "PasswordDigest='"] {
+    for marker in ["PasswordDigest="] {
         let mut search_from = 0;
         while let Some(relative) = text[search_from..].find(marker) {
             let value_start = search_from + relative + marker.len();
