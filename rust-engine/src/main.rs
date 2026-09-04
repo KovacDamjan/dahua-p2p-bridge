@@ -215,15 +215,17 @@ async fn main() {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            let packets = retransmit_session
-                .lock()
-                .unwrap()
-                .due_retransmissions();
-            if !packets.is_empty() {
+            let (packets, stalled) = {
+                let mut session = retransmit_session.lock().unwrap();
+                let packets = session.due_retransmissions();
+                let stalled = session.has_retransmission_stall();
+                (packets, stalled)
+            };
+            if stalled {
                 eprintln!(
-                    "Retransmitting {} unacknowledged PTCP packet(s)",
-                    packets.len()
+                    "PTCP retransmission stall detected; requesting full P2P reconnect"
                 );
+                std::process::exit(75);
             }
             for packet in packets {
                 retransmit_socket.ptcp_request(packet).await;

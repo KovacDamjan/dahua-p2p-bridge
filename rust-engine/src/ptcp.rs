@@ -438,6 +438,12 @@ impl PTCPSession {
         }
     }
 
+    pub fn has_retransmission_stall(&self) -> bool {
+        self.sent_window
+            .iter()
+            .any(|tracked| tracked.retries >= MAX_RETRANSMITS)
+    }
+
     pub fn due_retransmissions(&mut self) -> Vec<PTCPPacket> {
         let now = Instant::now();
         let mut due = Vec::new();
@@ -467,6 +473,11 @@ fn packet_debug_enabled() -> bool {
     })
 }
 
+fn packet_log_enabled(body: &PTCPBody) -> bool {
+    packet_debug_enabled()
+        || matches!(body, PTCPBody::Bind(_, _) | PTCPBody::Status(_, _))
+}
+
 fn idle_reconnect_seconds() -> u64 {
     static SECONDS: OnceLock<u64> = OnceLock::new();
     *SECONDS.get_or_init(|| {
@@ -487,8 +498,7 @@ pub trait PTCP {
 impl PTCP for UdpSocket {
     async fn ptcp_request(&self, packet: PTCPPacket) {
         let peer = restart_on_socket_error(self.peer_addr(), "peer lookup");
-        let log_packet = packet_debug_enabled()
-            || !matches!(&packet.body, PTCPBody::Payload(_) | PTCPBody::Empty);
+        let log_packet = packet_log_enabled(&packet.body);
         if log_packet {
             println!(">>> {}", peer);
             println!("{:?}", packet);
@@ -565,8 +575,7 @@ impl PTCP for UdpSocket {
         };
 
         let packet = PTCPPacket::parse(&buf[0..n]);
-        let log_packet = packet_debug_enabled()
-            || !matches!(&packet.body, PTCPBody::Payload(_) | PTCPBody::Empty);
+        let log_packet = packet_log_enabled(&packet.body);
         if log_packet {
             println!("<<< {}", peer);
             println!("{:?}", packet);
