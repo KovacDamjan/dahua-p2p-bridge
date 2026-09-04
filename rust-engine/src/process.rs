@@ -166,10 +166,6 @@ pub async fn process_writer(
         }
         if !response.is_empty() {
             let rewritten = normalize_no_profile_delete_response(rewrite_http_response(&response, &config));
-            println!(
-                "ONVIF <<< {}",
-                debug_http(&rewritten)
-            );
             let _ = writer.write_all(&rewritten).await;
         }
         channels.lock().unwrap().remove(&realm_id);
@@ -249,7 +245,6 @@ pub async fn process_reader(
         if persistent_realm {
             http_request.extend_from_slice(&buf[..n]);
             if http_request_complete(&http_request) {
-                println!("ONVIF >>> {}", debug_http(&http_request));
                 http_request.clear();
             }
         }
