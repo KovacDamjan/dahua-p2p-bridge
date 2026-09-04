@@ -71,6 +71,9 @@ class P2PManager:
         self.max_cameras = max_cameras
         self._workers: dict[int, WorkerState] = {}
         self._lock = threading.RLock()
+        # Log output can be very noisy (especially ONVIF PullMessages). Keep it
+        # independent from worker state so status/UI requests never wait on logs.
+        self._log_lock = threading.Lock()
 
     def port_for(self, camera_id: int) -> int:
         if camera_id < 1 or camera_id > self.max_cameras:
@@ -102,7 +105,7 @@ class P2PManager:
         return worker
 
     def _append_worker_log(self, worker: WorkerState, message: str) -> None:
-        with self._lock:
+        with self._log_lock:
             worker.logs.append(message)
             worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
 
@@ -137,7 +140,7 @@ class P2PManager:
         )
         state = ServiceState(process=process, service="rtsp")
         worker.services["rtsp"] = state
-        worker.logs.append("[P2P] Starting private Dahua P2P RTSP worker")
+        self._append_worker_log(worker, "[P2P] Starting private Dahua P2P RTSP worker")
         threading.Thread(
             target=self._read_output, args=(camera_id, worker, state), daemon=True
         ).start()
@@ -188,8 +191,9 @@ class P2PManager:
         )
         state = ServiceState(process=process, service=service)
         worker.services[service] = state
-        worker.logs.append(f"[P2P] Starting independent {service.upper()} P2P session")
-        worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
+        self._append_worker_log(
+            worker, f"[P2P] Starting independent {service.upper()} P2P session"
+        )
         threading.Thread(
             target=self._read_output,
             args=(camera_id, worker, state),
@@ -202,9 +206,8 @@ class P2PManager:
         assert state.process.stdout is not None
         for raw_line in state.process.stdout:
             line = raw_line.rstrip()
+            self._append_worker_log(worker, f"[P2P] {line}")
             with self._lock:
-                worker.logs.append(f"[P2P] {line}")
-                worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
                 if line.startswith("READY remote="):
                     parts = dict(item.split("=", 1) for item in line.split()[1:] if "=" in item)
                     state.status = "online"
@@ -235,7 +238,8 @@ class P2PManager:
         with self._lock:
             current = self._workers.get(camera_id)
             if current is worker and worker.services.get(state.service) is state:
-                recent_logs = worker.logs[-100:]
+                with self._log_lock:
+                    recent_logs = worker.logs[-100:]
                 if return_code == 75:
                     state.status = "connecting"
                     state.last_error = None
@@ -247,10 +251,11 @@ class P2PManager:
                     state.online_since = None
                     state.reconnect_attempt += 1
                     restart_delay = min(30, 2 ** min(state.reconnect_attempt, 5))
-                    worker.logs.append(
+                    restart_message = (
                         "[P2P] P2P engine requested reconnect; "
                         f"rebuilding this session in {restart_delay} seconds"
                     )
+                    self._append_worker_log(worker, restart_message)
                     restart = True
                 elif return_code != 0 and any(
                     marker in line.lower()
@@ -258,17 +263,17 @@ class P2PManager:
                     for marker in TRANSIENT_FAILURE_MARKERS
                 ):
                     state.status = "connecting"
-                    worker.logs.append(
+                    retry_message = (
                         "[P2P] Transient Easy4IP failure; retrying in "
                         f"{TRANSIENT_RETRY_SECONDS} seconds"
                     )
+                    self._append_worker_log(worker, retry_message)
                     restart = True
                     restart_delay = TRANSIENT_RETRY_SECONDS
                 else:
                     state.status = "stopped" if return_code == 0 else "error"
                 if return_code not in (0, 75) and not state.last_error:
                     state.last_error = f"P2P worker exited with code {return_code}"
-                worker.logs[:] = worker.logs[-LOG_HISTORY_LIMIT:]
 
         if restart:
             threading.Event().wait(restart_delay)
@@ -308,6 +313,8 @@ class P2PManager:
             worker = self._workers.get(camera_id)
             if worker is None:
                 return {"status": "stopped", "last_error": None, "logs": []}
+            with self._log_lock:
+                logs = worker.logs[-LOG_STATUS_LIMIT:]
             return {
                 "status": worker.status,
                 "last_error": worker.last_error,
@@ -316,7 +323,7 @@ class P2PManager:
                     name: {"status": state.status, "last_error": state.last_error}
                     for name, state in worker.services.items()
                 },
-                "logs": worker.logs[-LOG_STATUS_LIMIT:],
+                "logs": logs,
             }
 
     def stop_all(self) -> None:
