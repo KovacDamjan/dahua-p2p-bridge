@@ -30,7 +30,7 @@ SESSION_COOKIE = "bridge_session"
 SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(30 * 24 * 60 * 60)))
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
-app = FastAPI(title="Dahua P2P Bridge", version="0.4.20")
+app = FastAPI(title="Dahua P2P Bridge", version="0.4.21")
 security = HTTPBasic(auto_error=False)
 
 
@@ -393,13 +393,13 @@ def live_view(camera_id: int, subtype: int = 0):
     try:
         process = subprocess.Popen(
             [
-                "ffmpeg", "-hide_banner", "-loglevel", "error",
-                "-rtsp_transport", "tcp", "-i", uri,
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                "-rw_timeout", "15000000", "-rtsp_transport", "tcp", "-i", uri,
                 "-an", "-vf", "fps=10", "-q:v", "5",
                 "-f", "mpjpeg", "pipe:1",
             ],
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             bufsize=0,
         )
     except FileNotFoundError as error:
