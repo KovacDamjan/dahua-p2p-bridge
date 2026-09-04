@@ -237,6 +237,7 @@ class UDP(socket.socket):
         self.bind(("0.0.0.0", 0))
 
         self.debug = debug
+        self.verbose = debug or os.getenv("P2P_VERBOSE_LOG", "0").lower() in ("1", "true", "yes", "on")
 
         self.lhost, self.lport = self.getsockname()
 
@@ -273,24 +274,27 @@ class UDP(socket.socket):
             try:
                 data = raw.decode("utf-8")
             except UnicodeDecodeError:
-                print(
-                    f":{self.lport} <<< {self.rhost}:{self.rport} "
-                    f"binary datagram ({len(raw)} bytes): {raw[:48].hex()}",
-                    flush=True,
-                )
+                if self.verbose:
+                    print(
+                        f":{self.lport} <<< {self.rhost}:{self.rport} "
+                        f"binary datagram ({len(raw)} bytes): {raw[:48].hex()}",
+                        flush=True,
+                    )
                 continue
             if data.startswith("DH") or data.startswith("HTTP/"):
                 break
-            print(
-                f":{self.lport} <<< {self.rhost}:{self.rport} "
-                f"unexpected datagram ({len(raw)} bytes): {raw[:48].hex()}",
-                flush=True,
-            )
+            if self.verbose:
+                print(
+                    f":{self.lport} <<< {self.rhost}:{self.rport} "
+                    f"unexpected datagram ({len(raw)} bytes): {raw[:48].hex()}",
+                    flush=True,
+                )
         else:
             raise ValueError("No DH/HTTP response after 10 unexpected datagrams")
 
-        print(f":{self.lport} <<< {self.rhost}:{self.rport}")
-        print(data.replace("\r\n", "\n"))
+        if self.verbose:
+            print(f":{self.lport} <<< {self.rhost}:{self.rport}")
+            print(data.replace("\r\n", "\n"))
 
         res = parse_response(data)
 
@@ -298,8 +302,9 @@ class UDP(socket.socket):
             print("Error:", res["status"])
             sys.exit(1)
 
-        print("Parsed <<<")
-        print(json.dumps(res, indent=2))
+        if self.verbose:
+            print("Parsed <<<")
+            print(json.dumps(res, indent=2))
 
         return res
 
@@ -343,8 +348,9 @@ Content-Length: {len(body)}
         req += f"""
 {body}"""
 
-        print(f":{self.lport} >>> {self.rhost}:{self.rport}")
-        print(req)
+        if self.verbose:
+            print(f":{self.lport} >>> {self.rhost}:{self.rport}")
+            print(req)
         self.send(req.replace("\n", "\r\n").encode())
 
         if not should_read:
@@ -383,11 +389,12 @@ Content-Length: {len(body)}
             data = self.recv(timeout=timeout)
             if len(data) >= 4 and data[:4] == b"PTCP":
                 break
-            print(
-                f":{self.lport} <<< {self.rhost}:{self.rport} "
-                f"ignoring non-PTCP datagram ({len(data)} bytes): {data[:48].hex()}",
-                flush=True,
-            )
+            if self.verbose:
+                print(
+                    f":{self.lport} <<< {self.rhost}:{self.rport} "
+                    f"ignoring non-PTCP datagram ({len(data)} bytes): {data[:48].hex()}",
+                    flush=True,
+                )
         else:
             raise ValueError("No PTCP packet after 20 non-PTCP datagrams")
 
