@@ -564,9 +564,9 @@ def main(
                     p2p_channel_body,
                     should_read=False,
                     pcs_request_id=pcs_request_id,
-                    request_cseq=p2p_request_cseq,
                     request_method="NFPOST",
                 )
+                p2p_request_cseq = channel_remote.last_request_cseq
             channel_remote.settimeout(45)
             try:
                 res = channel_remote.read_for_cseq(
