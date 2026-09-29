@@ -158,6 +158,63 @@ def main(
             f"No Easy4IP P2P server responded on UDP {main_port}: {last_probe_error}"
         )
 
+    def prime_stun(remote):
+        # SmartPSS primes the cloud STUN service before channel negotiation.
+        # The STUN result is used to learn the public UDP mapping and keeps
+        # Easy4IP's NAT classification in sync with the later p2p-channel
+        # request. This is best-effort because older firmware may not expose
+        # the endpoint.
+        try:
+            stun_res = remote.request("/online/stun", request_cseq=0)
+            stun_body = (stun_res.get("data") or {}).get("body") or {}
+            stun_address = stun_body.get("STUN")
+            if not stun_address:
+                print("STUN: cloud returned no STUN endpoint", flush=True)
+                return
+            stun_server, stun_port = stun_address.rsplit(":", 1)
+            stun_port = int(stun_port)
+            probe_count = int(stun_body.get("PortNum") or 6)
+            check_space = int(stun_body.get("CheckSpace") or 240)
+            print(
+                f"STUN: probing {stun_server}:{stun_port} "
+                f"({probe_count} probes, spacing {check_space}ms)",
+                flush=True,
+            )
+            stun_remote = UDP(stun_server, stun_port, debug)
+            stun_remote.settimeout(4)
+            try:
+                sequence = random.randint(-(2**31), 2**31 - probe_count - 1)
+                for offset in range(probe_count):
+                    probe_sequence = sequence + offset
+                    probe_body = (
+                        f"<body><seq>{probe_sequence}</seq>"
+                        "<replaceHost>0</replaceHost><replacePort>0</replacePort></body>"
+                    )
+                    try:
+                        probe_res = stun_remote.request(
+                            "/p2p/stun/probe",
+                            probe_body,
+                            request_method="NFGET",
+                            request_cseq=0,
+                        )
+                        result = (probe_res.get("data") or {}).get("body") or {}
+                        if result.get("ip") and result.get("port"):
+                            print(
+                                f"STUN: mapped {result['ip']}:{result['port']} "
+                                f"ttl={result.get('ttl', '?')}",
+                                flush=True,
+                            )
+                    except (OSError, socket.timeout, ValueError, ConnectionError) as error:
+                        print(f"STUN: probe {offset + 1}/{probe_count} failed: {error}", flush=True)
+                    if offset + 1 < probe_count and check_space > 0:
+                        time.sleep(check_space / 1000)
+            finally:
+                stun_remote.close()
+        except (OSError, socket.timeout, ValueError, KeyError, ConnectionError) as error:
+            print(f"STUN: unavailable, continuing without STUN priming: {error}", flush=True)
+
+    prime_stun(main_remote)
+
     res = main_remote.request(f"/online/p2psrv/{serial}")
 
     ds_server, ds_port = res["data"]["body"]["DS"].split(":")
@@ -303,12 +360,15 @@ def main(
         agent_port = int(agent_port)
         main_remote.rhost = agent_server
         main_remote.rport = agent_port
-        main_remote.request(
+        relay_start_res = main_remote.request(
             f"/relay/start/{token}",
             f"<body><Dev>{serial}</Dev><Client>:0</Client></body>",
-            should_read=False,
             pcs_request_id=relay_pcs_request_id,
         )
+        if relay_start_res["code"] >= 400:
+            raise ConnectionError(
+                "relay/start rejected: " + relay_start_res["status"]
+            )
         main_remote.rhost = main_server
         main_remote.rport = main_port
         return agent_server, agent_port
@@ -328,9 +388,9 @@ def main(
     else:
         pcs_request_id = relay_pcs_request_id
         print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
-        channel_remote.rhost = main_server
-        channel_remote.rport = main_port
-        print(f"CHANNEL: requesting via Easy4IP {main_server}:{main_port}", flush=True)
+        channel_remote.rhost = ds_server
+        channel_remote.rport = ds_port
+        print(f"CHANNEL: requesting via DS {ds_server}:{ds_port}", flush=True)
         channel_remote.request(
             f"/device/{serial}/p2p-channel",
             p2p_channel_body,
@@ -357,8 +417,8 @@ def main(
             # In the successful SmartPSS capture, Server Nat Info is a
             # plain UDP/HTTP response from the Easy4IP control server (:8800),
             # returning to the same source socket used for NFPOST.
-            channel_remote.rhost = main_server
-            channel_remote.rport = main_port
+            channel_remote.rhost = ds_server
+            channel_remote.rport = ds_port
             channel_remote.settimeout(45)
             try:
                 nat_info_response = channel_remote.read(return_error=True)
@@ -386,8 +446,8 @@ def main(
                     f"<agentAddr>{agent_server}:{agent_port}</agentAddr></body>"
                 )
 
-                main_remote.rhost = main_server
-                main_remote.rport = main_port
+                main_remote.rhost = ds_server
+                main_remote.rport = ds_port
                 main_remote.request(
                     f"/device/{serial}/relay-channel",
                     relay_channel_body,
@@ -449,8 +509,8 @@ def main(
         for attempt in range(1, channel_attempts + 1):
             # Relay setup reuses the same socket and changes its destination;
             # every retry must explicitly go back to the Easy4IP control server.
-            channel_remote.rhost = main_server
-            channel_remote.rport = main_port
+            channel_remote.rhost = ds_server
+            channel_remote.rport = ds_port
             if attempt > 1:
                 print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
                 p2p_channel_body = build_p2p_channel_body()
