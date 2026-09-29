@@ -159,31 +159,35 @@ def main(
         )
 
     def prime_stun(remote):
-        # SmartPSS primes the cloud STUN service before channel negotiation.
-        # The STUN result is used to learn the public UDP mapping and keeps
-        # Easy4IP's NAT classification in sync with the later p2p-channel
-        # request. This is best-effort because older firmware may not expose
-        # the endpoint.
-        try:
-            stun_res = remote.request("/online/stun", request_cseq=0)
-            stun_body = (stun_res.get("data") or {}).get("body") or {}
-            stun_address = stun_body.get("STUN")
-            if not stun_address:
-                print("STUN: cloud returned no STUN endpoint", flush=True)
-                return
-            stun_server, stun_port = stun_address.rsplit(":", 1)
-            stun_port = int(stun_port)
-            probe_count = int(stun_body.get("PortNum") or 6)
-            check_space = int(stun_body.get("CheckSpace") or 240)
-            print(
-                f"STUN: probing {stun_server}:{stun_port} "
-                f"({probe_count} probes, spacing {check_space}ms)",
-                flush=True,
-            )
-            stun_remote = UDP(stun_server, stun_port, debug)
-            stun_remote.settimeout(4)
+        # SmartPSS primes STUN before channel negotiation. Easy4IP may
+        # temporarily return an unhealthy STUN node, so refresh the endpoint
+        # instead of continuing with a failed NAT classification.
+        refresh_attempts = 3
+        for refresh in range(1, refresh_attempts + 1):
+            stun_remote = None
             try:
+                stun_res = remote.request("/online/stun", request_cseq=0)
+                stun_body = (stun_res.get("data") or {}).get("body") or {}
+                stun_address = stun_body.get("STUN")
+                if not stun_address:
+                    print("STUN: cloud returned no STUN endpoint", flush=True)
+                    return False
+
+                stun_server, stun_port = stun_address.rsplit(":", 1)
+                stun_port = int(stun_port)
+                probe_count = int(stun_body.get("PortNum") or 6)
+                check_space = int(stun_body.get("CheckSpace") or 240)
+                print(
+                    f"STUN: probing {stun_server}:{stun_port} "
+                    f"({probe_count} probes, spacing {check_space}ms, "
+                    f"refresh {refresh}/{refresh_attempts})",
+                    flush=True,
+                )
+
+                stun_remote = UDP(stun_server, stun_port, debug)
+                stun_remote.settimeout(2)
                 sequence = random.randint(-(2**31), 2**31 - probe_count - 1)
+                mapped = False
                 for offset in range(probe_count):
                     probe_sequence = sequence + offset
                     probe_body = (
@@ -199,19 +203,35 @@ def main(
                         )
                         result = (probe_res.get("data") or {}).get("body") or {}
                         if result.get("ip") and result.get("port"):
+                            mapped = True
                             print(
                                 f"STUN: mapped {result['ip']}:{result['port']} "
                                 f"ttl={result.get('ttl', '?')}",
                                 flush=True,
                             )
                     except (OSError, socket.timeout, ValueError, ConnectionError) as error:
-                        print(f"STUN: probe {offset + 1}/{probe_count} failed: {error}", flush=True)
+                        print(
+                            f"STUN: probe {offset + 1}/{probe_count} failed: {error}",
+                            flush=True,
+                        )
                     if offset + 1 < probe_count and check_space > 0:
                         time.sleep(check_space / 1000)
+
+                if mapped:
+                    return True
+                print(
+                    f"STUN: endpoint {stun_server}:{stun_port} did not respond; "
+                    "refreshing endpoint",
+                    flush=True,
+                )
+            except (OSError, socket.timeout, ValueError, KeyError, ConnectionError) as error:
+                print(f"STUN: refresh {refresh}/{refresh_attempts} failed: {error}", flush=True)
             finally:
-                stun_remote.close()
-        except (OSError, socket.timeout, ValueError, KeyError, ConnectionError) as error:
-            print(f"STUN: unavailable, continuing without STUN priming: {error}", flush=True)
+                if stun_remote is not None:
+                    stun_remote.close()
+
+        print("STUN: no endpoint responded; continuing without STUN priming", flush=True)
+        return False
 
     prime_stun(main_remote)
 
