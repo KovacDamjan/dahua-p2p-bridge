@@ -299,6 +299,21 @@ def main(
         print("Device reported no salt, continuing without one.")
 
     device_remote = UDP(main_server, main_port, debug)
+    # Easy4IP DNS can resolve to a control node that answers probes but does
+    # not return the asynchronous p2p-channel response for this device.
+    # Keep the DNS-selected node first, then try a node observed in the
+    # working SmartPSS capture. An explicit environment override can add the
+    # current node without another image rebuild.
+    channel_targets = [main_server]
+    configured_channel_target = os.getenv("P2P_CHANNEL_SERVER", "").strip()
+    if configured_channel_target and configured_channel_target not in channel_targets:
+        channel_targets.append(configured_channel_target)
+    if "165.154.165.252" not in channel_targets:
+        channel_targets.append("165.154.165.252")
+    print(
+        f"CHANNEL: candidate Easy4IP targets {', '.join(f'{host}:{main_port}' for host in channel_targets)}",
+        flush=True,
+    )
     # SmartPSS uses one UDP source port for the complete channel flow.
     channel_remote = main_remote
 
@@ -408,9 +423,9 @@ def main(
     else:
         pcs_request_id = relay_pcs_request_id
         print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
-        channel_remote.rhost = main_server
+        channel_remote.rhost = channel_targets[0]
         channel_remote.rport = main_port
-        print(f"CHANNEL: requesting via Easy4IP {main_server}:{main_port}", flush=True)
+        print(f"CHANNEL: requesting via Easy4IP {channel_remote.rhost}:{main_port}", flush=True)
         channel_remote.request(
             f"/device/{serial}/p2p-channel",
             p2p_channel_body,
@@ -534,9 +549,14 @@ def main(
         for attempt in range(1, channel_attempts + 1):
             # Relay setup reuses the same socket and changes its destination;
             # every retry must explicitly go back to the Easy4IP control server.
-            channel_remote.rhost = main_server
+            target_index = min(attempt - 1, len(channel_targets) - 1)
+            channel_remote.rhost = channel_targets[target_index]
             channel_remote.rport = main_port
             if attempt > 1:
+                print(
+                    f"CHANNEL: retry target {channel_remote.rhost}:{main_port}",
+                    flush=True,
+                )
                 print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
                 p2p_channel_body = build_p2p_channel_body()
                 channel_remote.request(
