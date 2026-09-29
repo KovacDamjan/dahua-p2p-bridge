@@ -379,7 +379,6 @@ def main(
         # p2p-channel request. This matches SmartPSS and prevents the delayed
         # Server Nat Info response from being consumed by relay setup.
         relay_remote = UDP(main_server, main_port, debug)
-        relay_pcs_request_id = __import__("uuid").uuid4().hex
         relay_res = relay_remote.request(
             "/online/relay", pcs_request_id=relay_pcs_request_id
         )
@@ -525,7 +524,7 @@ def main(
                     )
                     device_remote.close()
                     launch_engine(
-                        main_remote,
+                        relay_remote,
                         socketserver,
                         onvif_socketserver,
                         rtsp_port,
@@ -681,18 +680,18 @@ def main(
         )
         device_remote.close()
         launch_engine(
-            main_remote,
+            relay_remote,
             socketserver,
             onvif_socketserver,
             rtsp_port,
             public_rtsp_port or actual_rtsp_port,
         )
 
-    main_remote.request_ptcp(b"\x17\x00\x00\x00" + b"\x00\x00\x00\x00\x00\x00\x00\x00")
+    relay_remote.request_ptcp(b"\x17\x00\x00\x00" + b"\x00\x00\x00\x00\x00\x00\x00\x00")
     sign = None
     for _ in range(12):
         try:
-            res = main_remote.read_ptcp(timeout=3)
+            res = relay_remote.read_ptcp(timeout=3)
         except socket.timeout:
             break
         control = f"0x{res.body[0]:02X}" if res.body else "ACK"
@@ -703,7 +702,7 @@ def main(
         )
         if res.body and res.body[0] == 0x13:
             print("Acknowledging relay PTCP heartbeat 0x13", flush=True)
-            main_remote.request_ptcp()
+            relay_remote.request_ptcp()
             continue
         if len(res.body) > 12 and res.body[0] == 0x18:
             sign = res.body[12:]
@@ -712,7 +711,7 @@ def main(
         raise ConnectionError("Relay server did not return PTCP sign response 0x18")
     print(f"Relay PTCP sign received ({len(sign)} bytes)", flush=True)
 
-    main_remote.request_ptcp()
+    relay_remote.request_ptcp()
 
     device_remote.rhost = device_server
     device_remote.rport = device_port
@@ -816,7 +815,7 @@ def main(
         )
         device_remote.close()
         launch_engine(
-            main_remote,
+            relay_remote,
             socketserver,
             onvif_socketserver,
             rtsp_port,
@@ -833,7 +832,7 @@ def main(
         )
         device_remote.close()
         launch_engine(
-            main_remote,
+            relay_remote,
             socketserver,
             onvif_socketserver,
             rtsp_port,
