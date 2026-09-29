@@ -408,8 +408,12 @@ def live_view(camera_id: int, subtype: int = 0):
     def frames():
         try:
             assert process.stdout is not None
+            # Read whatever FFmpeg has already produced.  Buffered
+            # read(64 KiB) can wait for a full block and leave the browser
+            # with a permanently black live view even though RTSP itself works.
+            output_fd = process.stdout.fileno()
             while True:
-                chunk = process.stdout.read(64 * 1024)
+                chunk = os.read(output_fd, 64 * 1024)
                 if not chunk:
                     break
                 yield chunk
