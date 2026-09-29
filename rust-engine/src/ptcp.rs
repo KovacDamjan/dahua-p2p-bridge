@@ -272,6 +272,7 @@ struct TrackedPacket {
 const GAP_PACKET_LIMIT: usize = 32;
 const RETRANSMIT_AFTER: Duration = Duration::from_millis(600);
 const MAX_RETRANSMITS: u8 = 8;
+// Stable RTSP baseline: preserve ordered video bytes; recovery remains disabled until verified.
 const MAX_SENT_WINDOW: usize = 2048;
 
 impl PTCPSession {
