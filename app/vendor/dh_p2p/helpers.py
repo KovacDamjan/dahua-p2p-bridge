@@ -244,6 +244,7 @@ class UDP(socket.socket):
 
         self.rhost = host
         self.rport = port
+        self.last_recv_addr = None
 
         self.ptcp_sent = 0
         self.ptcp_recv = 0
@@ -264,7 +265,9 @@ class UDP(socket.socket):
         if timeout:
             self.settimeout(timeout)
         try:
-            return self.recvfrom(bufsize)[0]
+            data, address = self.recvfrom(bufsize)
+            self.last_recv_addr = address
+            return data
         finally:
             if timeout:
                 self.settimeout(None)
@@ -356,7 +359,21 @@ Content-Length: {len(body)}
         if self.verbose:
             print(f":{self.lport} >>> {self.rhost}:{self.rport}")
             print(req)
-        self.send(req.replace("\n", "\r\n").encode())
+        wire_request = req.replace("\n", "\r\n").encode()
+        if "p2p-channel" in path or "relay-channel" in path:
+            try:
+                resolved_ip = socket.gethostbyname(self.rhost)
+            except OSError as error:
+                resolved_ip = f"<resolve-error:{error}>"
+            print(
+                f"CHANNEL DEBUG: {method} {path} "
+                f"target={resolved_ip}:{self.rport} "
+                f"local={self.lhost}:{self.lport} "
+                f"cseq={request_cseq} pcs={pcs_request_id} "
+                f"bytes={len(wire_request)}",
+                flush=True,
+            )
+        self.send(wire_request)
 
         if not should_read:
             return None
@@ -408,6 +425,13 @@ Content-Length: {len(body)}
         for _ in range(20):
             response = self.read(return_error=True)
             response_cseq = str(response.get("headers", {}).get("CSeq", ""))
+            print(
+                f"CHANNEL DEBUG: response from "
+                f"{self.last_recv_addr or '<unknown>'} "
+                f"cseq={response_cseq or '<none>'} "
+                f"status={response.get('code')} {response.get('status')}",
+                flush=True,
+            )
             if response_cseq and response_cseq != request_cseq:
                 self.pending_responses.append(response)
                 continue
