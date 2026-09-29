@@ -74,7 +74,7 @@ main{min-width:0;padding:32px clamp(18px,4vw,52px) 45px;max-width:1600px;width:1
     <div class="section-head">
       <h2>Kamere</h2>
       <div class="toolbar">
-        <select id="filter" class="select"><option value="all">Vse kamere</option><option value="online">Samo online</option><option value="offline">Samo offline</option></select>
+        <select id="filter" class="select"><option value="all">Vse kamere</option><option value="online">Samo online</option><option value="offline">Samo offline</option></select><button id="preview-toggle" class="btn secondary small">Predogledi: izklopljeni</button>
       </div>
     </div>
     <section id="cameras" class="camera-grid"><div class="empty-state"><div class="big">◌</div>Nalaganje kamer …</div></section>
@@ -88,7 +88,7 @@ main{min-width:0;padding:32px clamp(18px,4vw,52px) 45px;max-width:1600px;width:1
 let cameras=[];
 let selectedCamera=null;
 let selectedSubtype=0;
-let previewEnabled=true;
+let previewEnabled=false;
 let refreshTimer=null;
 
 function showLogin(){document.querySelector('#app').classList.add('hidden');document.querySelector('#login-screen').classList.remove('hidden')}
@@ -112,7 +112,7 @@ function addModal(){openModal('<div class="modal-head"><div><div class="eyebrow"
 async function reconnect(id){try{toast('Ponovno vzpostavljam P2P sejo …');await api('/api/cameras/'+id+'/test',{method:'POST'});closeModal();setTimeout(load,1200)}catch(error){toast(error.message,true)}}
 async function removeCamera(id){if(!confirm('Ali res želiš izbrisati to kamero?'))return;try{await api('/api/cameras/'+id,{method:'DELETE'});closeModal();toast('Kamera je izbrisana.');load()}catch(error){toast(error.message,true)}}
 document.addEventListener('click',async event=>{const target=event.target.closest('[data-action]');if(target){const action=target.dataset.action;const id=Number(target.dataset.id);const camera=cameras.find(x=>Number(x.id)===id);if(action==='close')closeModal();if(action==='live'&&camera)liveModal(camera);if(action==='details'&&camera)detailsModal(camera);if(action==='reconnect'&&id)reconnect(id);if(action==='delete'&&id)removeCamera(id)}const stream=event.target.closest('[data-live-subtype]');if(stream){selectedSubtype=Number(stream.dataset.liveSubtype);startLive()}});
-document.querySelector('#add-camera').onclick=addModal;document.querySelector('#refresh').onclick=load;document.querySelector('#filter').onchange=render;document.querySelector('#logout').onclick=async()=>{await fetch('/api/logout',{method:'POST'});showLogin()};
+document.querySelector('#add-camera').onclick=addModal;document.querySelector('#refresh').onclick=load;document.querySelector('#filter').onchange=render;document.querySelector('#preview-toggle').onclick=()=>{previewEnabled=!previewEnabled;document.querySelector('#preview-toggle').textContent='Predogledi: '+(previewEnabled?'vklopljeni':'izklopljeni');render()};document.querySelector('#logout').onclick=async()=>{await fetch('/api/logout',{method:'POST'});showLogin()};
 document.querySelector('#login-form').onsubmit=async event=>{event.preventDefault();try{await api('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(event.target)))});event.target.password.value='';showApp();load()}catch(error){document.querySelector('#login-error').textContent=error.message}};
 document.addEventListener('submit',async event=>{if(event.target.id!=='add-form')return;event.preventDefault();const body=Object.fromEntries(new FormData(event.target));body.channel=Number(body.channel);body.enabled=true;body.motion_enabled=true;try{await api('/api/cameras',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});closeModal();toast('Kamera je dodana. P2P povezava se vzpostavlja …');load()}catch(error){toast(error.message,true)}});
 document.querySelectorAll('[data-nav]').forEach(item=>item.onclick=()=>{if(item.dataset.nav==='live'&&selectedCamera)liveModal(selectedCamera);if(item.dataset.nav==='settings')addModal()});
