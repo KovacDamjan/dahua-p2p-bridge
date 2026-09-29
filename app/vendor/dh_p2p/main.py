@@ -314,8 +314,9 @@ def main(
         f"CHANNEL: candidate Easy4IP targets {', '.join(f'{host}:{main_port}' for host in channel_targets)}",
         flush=True,
     )
-    # SmartPSS uses one UDP source port for the complete channel flow.
-    channel_remote = main_remote
+    # Keep the pending p2p-channel response on its own UDP socket. SmartPSS
+    # uses independent control sockets for channel negotiation and relay setup.
+    channel_remote = UDP(main_server, main_port, debug)
 
     # Advertise the NAS LAN address to Easy4IP. 127.0.0.1 is only a
     # local bind address and causes the cloud to silently discard the channel
@@ -330,7 +331,7 @@ def main(
             advertise_ip = route_probe.getsockname()[0]
         finally:
             route_probe.close()
-    laddr = f"{advertise_ip}:{main_remote.lport}"
+    laddr = f"{advertise_ip}:{channel_remote.lport}"
     print(f"CHANNEL: advertising LocalAddr {laddr}", flush=True)
     auth = ""
     ipaddr = ""
@@ -374,18 +375,18 @@ def main(
     relay_pcs_request_id = __import__("uuid").uuid4().hex
 
     def setup_relay_agent():
-        # SmartPSS creates the relay agent after the pending direct channel
-        # request has been sent, and uses the same PCS request id.
-        main_remote.rhost = main_server
-        main_remote.rport = main_port
-        relay_res = main_remote.request(
-            "/online/relay",
-            pcs_request_id=relay_pcs_request_id,
+        # Keep relay discovery on a separate source socket from the pending
+        # p2p-channel request. This matches SmartPSS and prevents the delayed
+        # Server Nat Info response from being consumed by relay setup.
+        relay_remote = UDP(main_server, main_port, debug)
+        relay_pcs_request_id = __import__("uuid").uuid4().hex
+        relay_res = relay_remote.request(
+            "/online/relay", pcs_request_id=relay_pcs_request_id
         )
         relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
-        main_remote.rhost = relay_server
-        main_remote.rport = int(relay_port)
-        agent_res = main_remote.request(
+        relay_remote.rhost = relay_server
+        relay_remote.rport = int(relay_port)
+        agent_res = relay_remote.request(
             "/relay/agent",
             f"<body><Dev>{serial}</Dev></body>",
             pcs_request_id=relay_pcs_request_id,
@@ -393,20 +394,21 @@ def main(
         token = agent_res["data"]["body"]["Token"]
         agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
         agent_port = int(agent_port)
-        main_remote.rhost = agent_server
-        main_remote.rport = agent_port
-        relay_start_res = main_remote.request(
+        relay_remote.rhost = agent_server
+        relay_remote.rport = agent_port
+        relay_start_res = relay_remote.request(
             f"/relay/start/{token}",
             f"<body><Dev>{serial}</Dev><Client>:0</Client></body>",
             pcs_request_id=relay_pcs_request_id,
         )
         if relay_start_res["code"] >= 400:
+            relay_remote.close()
             raise ConnectionError(
                 "relay/start rejected: " + relay_start_res["status"]
             )
-        main_remote.rhost = main_server
-        main_remote.rport = main_port
-        return agent_server, agent_port
+        relay_remote.rhost = main_server
+        relay_remote.rport = main_port
+        return relay_remote, relay_pcs_request_id, agent_server, agent_port
 
     # Match SmartPSS channel negotiation fields and XML order.
     p2p_channel_body = build_p2p_channel_body()
@@ -414,7 +416,7 @@ def main(
         # Relay transport does not require the direct device channel response.
         # The relay-channel negotiation below creates the authenticated PTCP
         # session and hands it to the Rust engine.
-        agent_server, agent_port = setup_relay_agent()
+        relay_remote, relay_pcs_request_id, agent_server, agent_port = setup_relay_agent()
         print("CHANNEL: relay-only mode; skipping direct p2p-channel", flush=True)
         res = {
             "code": 200,
@@ -441,7 +443,7 @@ def main(
         # request is pending. The p2p-channel request is fire-and-forget in
         # the captured flow: SmartPSS does not wait for an HTTP response before
         # switching to the binary PTCP tunnel on the relay agent.
-        agent_server, agent_port = setup_relay_agent()
+        relay_remote, relay_pcs_request_id, agent_server, agent_port = setup_relay_agent()
 
         if os.getenv("P2P_WAIT_FOR_CHANNEL_RESPONSE", "0").strip() != "1":
             print(
@@ -485,22 +487,23 @@ def main(
                     f"<agentAddr>{agent_server}:{agent_port}</agentAddr></body>"
                 )
 
-                main_remote.rhost = main_server
-                main_remote.rport = main_port
-                main_remote.request(
+                relay_remote.rhost = main_server
+                relay_remote.rport = main_port
+                relay_remote.request(
                     f"/device/{serial}/relay-channel",
                     relay_channel_body,
                     should_read=False,
                     pcs_request_id=pcs_request_id,
+                    request_method="NFPOST",
                 )
-                relay_channel_cseq = main_remote.last_request_cseq
-                main_remote.rhost = agent_server
-                main_remote.rport = agent_port
-                relay_channel_response = main_remote.read_for_cseq(
+                relay_channel_cseq = relay_remote.last_request_cseq
+                relay_remote.rhost = agent_server
+                relay_remote.rport = agent_port
+                relay_channel_response = relay_remote.read_for_cseq(
                     relay_channel_cseq, return_error=True
                 )
                 while relay_channel_response["code"] < 200:
-                    relay_channel_response = main_remote.read_for_cseq(
+                    relay_channel_response = relay_remote.read_for_cseq(
                         relay_channel_cseq, return_error=True
                     )
                 if relay_channel_response["code"] >= 400:
@@ -513,8 +516,8 @@ def main(
                     flush=True,
                 )
 
-                main_remote.request_ptcp(b"\x00\x03\x01\x00")
-                relay_sync = main_remote.read_ptcp(timeout=8)
+                relay_remote.request_ptcp(b"\x00\x03\x01\x00")
+                relay_sync = relay_remote.read_ptcp(timeout=8)
                 if relay_sync.body == b"\x00\x03\x01\x00":
                     print(
                         f"CHANNEL: PTCP relay ready via {agent_server}:{agent_port}",
@@ -541,7 +544,7 @@ def main(
                 )
             finally:
                 channel_remote.settimeout(None)
-                main_remote.settimeout(None)
+                relay_remote.settimeout(None)
 
         res = None
         last_channel_error = None
@@ -640,33 +643,34 @@ def main(
             auth = get_auth(username, key, nonce, randsalt)
         channel_remote.rhost = ds_server
         channel_remote.rport = ds_port
-        channel_remote.request(
+        relay_remote.request(
             f"/device/{serial}/relay-channel",
             f"<body>{auth}<sVersion>1.1.0</sVersion>"
             f"<agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
             should_read=False,
             pcs_request_id=relay_pcs_request_id,
+            request_method="NFPOST",
         )
-        main_remote.rhost = agent_server
-        main_remote.rport = agent_port
-        main_remote.settimeout(10)
+        relay_remote.rhost = agent_server
+        relay_remote.rport = agent_port
+        relay_remote.settimeout(10)
         try:
-            relay_nat_response = main_remote.read()
+            relay_nat_response = relay_remote.read()
         except (OSError, socket.timeout) as error:
             raise ConnectionError(
                 f"Agent server {agent_server}:{agent_port} did not return NAT info: {error}"
             ) from error
         finally:
-            main_remote.settimeout(None)
+            relay_remote.settimeout(None)
     else:
         # In direct mode the p2p-channel response is the NAT response. Restore
         # the relay agent endpoint for the PTCP sign exchange; do not create a
         # second relay session or send relay-channel.
-        main_remote.rhost = agent_server
-        main_remote.rport = agent_port
+        relay_remote.rhost = agent_server
+        relay_remote.rport = agent_port
 
-    main_remote.request_ptcp(b"\x00\x03\x01\x00")
-    res = main_remote.read_ptcp()
+    relay_remote.request_ptcp(b"\x00\x03\x01\x00")
+    res = relay_remote.read_ptcp()
 
     if transport == "relay":
         if res.body != b"\x00\x03\x01\x00":
