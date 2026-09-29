@@ -250,6 +250,10 @@ class UDP(socket.socket):
         self.ptcp_count = 0
         self.ptcp_id = 0
         self.last_request_cseq = None
+        # Control responses can arrive while another request is being
+        # completed (notably p2p-channel during relay/start). Keep them by
+        # CSeq instead of discarding them as delayed packets.
+        self.pending_responses = []
 
         self.rmid = 0
 
@@ -365,8 +369,9 @@ Content-Length: {len(body)}
             response = self.read()
             response_cseq = str(response.get("headers", {}).get("CSeq", ""))
             if response_cseq and response_cseq != str(request_cseq):
+                self.pending_responses.append(response)
                 print(
-                    f"Ignoring delayed response CSeq {response_cseq}; "
+                    f"Queued delayed response CSeq {response_cseq}; "
                     f"waiting for {request_cseq}",
                     flush=True,
                 )
@@ -380,6 +385,41 @@ Content-Length: {len(body)}
                 continue
             return response
         raise ConnectionError(f"No final response received for CSeq {request_cseq}")
+
+    def read_for_cseq(self, request_cseq, return_error=False):
+        """Read the final HTTP response for a specific CSeq.
+
+        Easy4IP may deliver the p2p-channel response while relay setup is
+        still in progress. Responses for other requests are retained so the
+        caller that owns that CSeq can consume them later.
+        """
+        request_cseq = str(request_cseq)
+        for index, response in enumerate(self.pending_responses):
+            response_cseq = str(response.get("headers", {}).get("CSeq", ""))
+            if response_cseq == request_cseq:
+                self.pending_responses.pop(index)
+                if response["code"] < 200:
+                    break
+                if not return_error and response["code"] >= 400:
+                    print("Error:", response["status"])
+                    sys.exit(1)
+                return response
+
+        for _ in range(20):
+            response = self.read(return_error=True)
+            response_cseq = str(response.get("headers", {}).get("CSeq", ""))
+            if response_cseq and response_cseq != request_cseq:
+                self.pending_responses.append(response)
+                continue
+            if response["code"] < 200:
+                continue
+            if not return_error and response["code"] >= 400:
+                print("Error:", response["status"])
+                sys.exit(1)
+            return response
+        raise ConnectionError(
+            f"No final response received for CSeq {request_cseq}"
+        )
 
     def read_ptcp(self, timeout=None):
         # Hole-punch acknowledgements and delayed Easy4IP control datagrams can
