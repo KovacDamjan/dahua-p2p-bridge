@@ -97,11 +97,12 @@ class P2PManager:
         if os.getenv("P2P_BACKEND", "").lower() == "vendor":
             self._start_vendor_service(camera_id, worker)
         else:
-            # Keep RTSP and ONVIF on separate authenticated P2P sessions.
-            # A high-bitrate RTSP stream must not block Synology's ONVIF
-            # discovery, authentication, or event requests.
-            self._start_service(camera_id, worker, "rtsp")
-            self._start_service(camera_id, worker, "onvif")
+            # RTSP and ONVIF share one authenticated P2P session.
+            # Easy4IP accepts one channel negotiation per device; two
+            # independent workers race their /p2p-channel requests and both
+            # remain stuck waiting for the NAT response. The Rust engine
+            # multiplexes both local listeners over one PTCP tunnel.
+            self._start_service(camera_id, worker, "both")
         return worker
 
     def _append_worker_log(self, worker: WorkerState, message: str) -> None:
@@ -146,7 +147,11 @@ class P2PManager:
         ).start()
 
     def _start_service(self, camera_id: int, worker: WorkerState, service: str) -> None:
-        bind_port = worker.port if service == "rtsp" else self.onvif_port_for(camera_id)
+        bind_port = (
+            worker.port
+            if service in ("rtsp", "both")
+            else self.onvif_port_for(camera_id)
+        )
         env = os.environ.copy()
         env.update(
             P2P_USERNAME=worker.camera["username"],
@@ -170,8 +175,8 @@ class P2PManager:
             "--type",
             "1",
             "--service",
-            # RTSP and ONVIF deliberately use independent authenticated
-            # P2P sessions so video traffic cannot delay ONVIF requests.
+            # RTSP and ONVIF share one authenticated P2P session; the Rust
+            # engine multiplexes both local listeners over that tunnel.
             service,
             "--bind-port",
             str(bind_port),
@@ -190,9 +195,16 @@ class P2PManager:
             bufsize=1,
         )
         state = ServiceState(process=process, service=service)
-        worker.services[service] = state
+        if service == "both":
+            worker.services["rtsp"] = state
+            worker.services["onvif"] = state
+        else:
+            worker.services[service] = state
         self._append_worker_log(
-            worker, f"[P2P] Starting independent {service.upper()} P2P session"
+            worker,
+            "[P2P] Starting shared RTSP + ONVIF P2P session"
+            if service == "both"
+            else f"[P2P] Starting {service.upper()} P2P session",
         )
         threading.Thread(
             target=self._read_output,
@@ -237,7 +249,9 @@ class P2PManager:
         restart_delay = 1
         with self._lock:
             current = self._workers.get(camera_id)
-            if current is worker and worker.services.get(state.service) is state:
+            if current is worker and any(
+                value is state for value in worker.services.values()
+            ):
                 with self._log_lock:
                     recent_logs = worker.logs[-100:]
                 if return_code == 75:
@@ -280,7 +294,9 @@ class P2PManager:
             with self._lock:
                 if (
                     self._workers.get(camera_id) is worker
-                    and worker.services.get(state.service) is state
+                    and any(
+                        value is state for value in worker.services.values()
+                    )
                 ):
                     self._start_service(camera_id, worker, state.service)
 
