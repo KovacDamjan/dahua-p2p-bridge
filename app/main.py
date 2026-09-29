@@ -419,12 +419,12 @@ def live_view(camera_id: int, subtype: int = 0):
                     break
                 buffer.extend(chunk)
                 while True:
-                    start = buffer.find(b"\\xff\\xd8")
+                    start = buffer.find(b"\xff\xd8")
                     if start < 0:
                         if len(buffer) > 2:
                             del buffer[:-2]
                         break
-                    end = buffer.find(b"\\xff\\xd9", start + 2)
+                    end = buffer.find(b"\xff\xd9", start + 2)
                     if end < 0:
                         if start:
                             del buffer[:start]
@@ -433,11 +433,11 @@ def live_view(camera_id: int, subtype: int = 0):
                     jpeg = bytes(buffer[start:end])
                     del buffer[:end]
                     yield (
-                        b"--frame\\r\\n"
-                        b"Content-Type: image/jpeg\\r\\n"
-                        + f"Content-Length: {len(jpeg)}\\r\\n\\r\\n".encode()
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n"
+                        + f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
                         + jpeg
-                        + b"\\r\\n"
+                        + b"\r\n"
                     )
         finally:
             if process.poll() is None:
