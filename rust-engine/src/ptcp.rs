@@ -398,13 +398,27 @@ impl PTCPSession {
             return Vec::new();
         }
         let is_recovery_command = packet.pid & 0xFF00_0000 == 0x0100_0000;
+        let is_video_payload = matches!(&packet.body, PTCPBody::Payload(_));
         self.pending.insert(packet_start, packet);
         self.gap_packets += 1;
 
+        // Control packets may be skipped after a persistent loss, but video
+        // payloads must never be skipped. Dropping bytes from an H264/H265
+        // PTCP stream corrupts NAL units and produces blocky video; DMSS keeps
+        // the ordered video stream and waits for retransmission instead.
+        let video_pending = self
+            .pending
+            .values()
+            .any(|pending| matches!(&pending.body, PTCPBody::Payload(_)));
+        let safe_to_skip = !is_video_payload && !video_pending;
+
         // Acknowledge only the last contiguous byte while the gap is short so
-        // the camera can retransmit it.  Advance after sustained loss to avoid
-        // freezing the complete RTSP session forever.
-        if self.allow_gap_skip && (is_recovery_command || self.gap_packets >= GAP_PACKET_LIMIT) {
+        // the camera can retransmit it. Advance only for a control-only gap;
+        // never jump over a video payload.
+        if self.allow_gap_skip
+            && safe_to_skip
+            && (is_recovery_command || self.gap_packets >= GAP_PACKET_LIMIT)
+        {
             let next_start = self
                 .pending
                 .keys()
@@ -694,6 +708,19 @@ mod tests {
         assert!(ready.is_empty());
         assert_eq!(session.recv, 24);
         assert_eq!(session.gap_packets, 0);
+    }
+
+    #[test]
+    fn persistent_video_gap_is_never_skipped() {
+        let mut session = PTCPSession::from_state(0, 0, 0, 0, 0);
+
+        for index in 1..=GAP_PACKET_LIMIT {
+            let packet = payload_packet((index as u32) * 1280, 1280);
+            assert!(session.recv(packet).is_empty());
+        }
+
+        assert_eq!(session.recv, 0);
+        assert_eq!(session.pending.len(), GAP_PACKET_LIMIT);
     }
 
     #[test]
