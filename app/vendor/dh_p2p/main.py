@@ -421,9 +421,13 @@ def main(
             channel_remote.rport = ds_port
             channel_remote.settimeout(45)
             try:
-                nat_info_response = channel_remote.read(return_error=True)
+                nat_info_response = channel_remote.read_for_cseq(
+                    p2p_request_cseq, return_error=True
+                )
                 while nat_info_response["code"] < 200:
-                    nat_info_response = channel_remote.read(return_error=True)
+                    nat_info_response = channel_remote.read_for_cseq(
+                        p2p_request_cseq, return_error=True
+                    )
                 if nat_info_response["code"] >= 400:
                     raise ConnectionError(
                         "p2p-channel rejected: "
@@ -454,14 +458,15 @@ def main(
                     should_read=False,
                     pcs_request_id=pcs_request_id,
                 )
+                relay_channel_cseq = main_remote.last_request_cseq
                 main_remote.rhost = agent_server
                 main_remote.rport = agent_port
-                relay_channel_response = main_remote.read(
-                    return_error=True
+                relay_channel_response = main_remote.read_for_cseq(
+                    relay_channel_cseq, return_error=True
                 )
                 while relay_channel_response["code"] < 200:
-                    relay_channel_response = main_remote.read(
-                        return_error=True
+                    relay_channel_response = main_remote.read_for_cseq(
+                        relay_channel_cseq, return_error=True
                     )
                 if relay_channel_response["code"] >= 400:
                     raise ConnectionError(
@@ -524,9 +529,13 @@ def main(
                 )
             channel_remote.settimeout(45)
             try:
-                res = channel_remote.read(return_error=True)
+                res = channel_remote.read_for_cseq(
+                    p2p_request_cseq, return_error=True
+                )
                 while res["code"] < 200:
-                    res = channel_remote.read(return_error=True)
+                    res = channel_remote.read_for_cseq(
+                        p2p_request_cseq, return_error=True
+                    )
                 break
             except (OSError, socket.timeout) as error:
                 last_channel_error = error
