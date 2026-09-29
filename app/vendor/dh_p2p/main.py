@@ -299,24 +299,31 @@ def main(
         print("Device reported no salt, continuing without one.")
 
     device_remote = UDP(main_server, main_port, debug)
-    # Easy4IP DNS can resolve to a control node that answers probes but does
-    # not return the asynchronous p2p-channel response for this device.
-    # Keep the DNS-selected node first, then try a node observed in the
-    # working SmartPSS capture. An explicit environment override can add the
-    # current node without another image rebuild.
-    channel_targets = [main_server]
+    # SmartPSS sends the device p2p-channel request to the DS endpoint
+    # returned by /online/p2psrv (normally :8802), not necessarily to the
+    # general Easy4IP control endpoint (:8800). Some cameras tolerate the
+    # latter while others silently drop the request.
+    channel_targets = [(ds_server, ds_port), (main_server, main_port)]
     configured_channel_target = os.getenv("P2P_CHANNEL_SERVER", "").strip()
-    if configured_channel_target and configured_channel_target not in channel_targets:
-        channel_targets.append(configured_channel_target)
-    if "165.154.165.252" not in channel_targets:
-        channel_targets.append("165.154.165.252")
+    if configured_channel_target:
+        if ":" in configured_channel_target:
+            configured_host, configured_port = configured_channel_target.rsplit(":", 1)
+            configured_target = (configured_host, int(configured_port))
+        else:
+            configured_target = (configured_channel_target, main_port)
+        if configured_target not in channel_targets:
+            channel_targets.append(configured_target)
+    fallback_target = ("165.154.165.252", main_port)
+    if fallback_target not in channel_targets:
+        channel_targets.append(fallback_target)
     print(
-        f"CHANNEL: candidate Easy4IP targets {', '.join(f'{host}:{main_port}' for host in channel_targets)}",
+        "CHANNEL: candidate Easy4IP targets "
+        + ", ".join(f"{host}:{port}" for host, port in channel_targets),
         flush=True,
     )
     # Keep the pending p2p-channel response on its own UDP socket. SmartPSS
     # uses independent control sockets for channel negotiation and relay setup.
-    channel_remote = UDP(main_server, main_port, debug)
+    channel_remote = UDP(channel_targets[0][0], channel_targets[0][1], debug)
 
     # Advertise the NAS LAN address to Easy4IP. 127.0.0.1 is only a
     # local bind address and causes the cloud to silently discard the channel
@@ -424,9 +431,12 @@ def main(
     else:
         pcs_request_id = relay_pcs_request_id
         print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
-        channel_remote.rhost = channel_targets[0]
-        channel_remote.rport = main_port
-        print(f"CHANNEL: requesting via Easy4IP {channel_remote.rhost}:{main_port}", flush=True)
+        channel_remote.rhost, channel_remote.rport = channel_targets[0]
+        print(
+            f"CHANNEL: requesting via Easy4IP "
+            f"{channel_remote.rhost}:{channel_remote.rport}",
+            flush=True,
+        )
         channel_remote.request(
             f"/device/{serial}/p2p-channel",
             p2p_channel_body,
@@ -552,11 +562,11 @@ def main(
             # Relay setup reuses the same socket and changes its destination;
             # every retry must explicitly go back to the Easy4IP control server.
             target_index = min(attempt - 1, len(channel_targets) - 1)
-            channel_remote.rhost = channel_targets[target_index]
-            channel_remote.rport = main_port
+            channel_remote.rhost, channel_remote.rport = channel_targets[target_index]
             if attempt > 1:
                 print(
-                    f"CHANNEL: retry target {channel_remote.rhost}:{main_port}",
+                    f"CHANNEL: retry target "
+                    f"{channel_remote.rhost}:{channel_remote.rport}",
                     flush=True,
                 )
                 print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
