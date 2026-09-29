@@ -388,9 +388,9 @@ def main(
     else:
         pcs_request_id = relay_pcs_request_id
         print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
-        channel_remote.rhost = ds_server
-        channel_remote.rport = ds_port
-        print(f"CHANNEL: requesting via DS {ds_server}:{ds_port}", flush=True)
+        channel_remote.rhost = main_server
+        channel_remote.rport = main_port
+        print(f"CHANNEL: requesting via Easy4IP {main_server}:{main_port}", flush=True)
         channel_remote.request(
             f"/device/{serial}/p2p-channel",
             p2p_channel_body,
@@ -417,8 +417,8 @@ def main(
             # In the successful SmartPSS capture, Server Nat Info is a
             # plain UDP/HTTP response from the Easy4IP control server (:8800),
             # returning to the same source socket used for NFPOST.
-            channel_remote.rhost = ds_server
-            channel_remote.rport = ds_port
+            channel_remote.rhost = main_server
+            channel_remote.rport = main_port
             channel_remote.settimeout(45)
             try:
                 nat_info_response = channel_remote.read_for_cseq(
@@ -450,8 +450,8 @@ def main(
                     f"<agentAddr>{agent_server}:{agent_port}</agentAddr></body>"
                 )
 
-                main_remote.rhost = ds_server
-                main_remote.rport = ds_port
+                main_remote.rhost = main_server
+                main_remote.rport = main_port
                 main_remote.request(
                     f"/device/{serial}/relay-channel",
                     relay_channel_body,
