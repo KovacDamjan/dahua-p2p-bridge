@@ -359,9 +359,26 @@ impl PTCPSession {
         if packet.body.len() == 0 {
             return Vec::new();
         }
-        // PTCP byte counters are wrapping u32 sequence numbers.  A negative or
-        // zero signed distance means that this datagram has already been
-        // acknowledged.  Plain integer comparisons fail after counter wrap.
+
+        // The Python handshake reader may consume the last PTCP response just
+        // before the Rust engine adopts the socket. That same datagram can
+        // still be queued in the kernel and arrive once more after handoff.
+        // Treat packets that start before the current receive offset as stale
+        // instead of turning them into a false gap. This also handles delayed
+        // duplicate packets from the relay.
+        if packet_start != self.recv && !sequence_after(packet_start, self.recv) {
+            if packet_debug_enabled() {
+                eprintln!(
+                    "PTCP stale/overlapping packet: bytes {}..{}; already at {}",
+                    packet_start, packet_end, self.recv
+                );
+            }
+            return Vec::new();
+        }
+
+        // PTCP byte counters are wrapping u32 sequence numbers.  A packet
+        // whose end is not after the current receive offset is already fully
+        // acknowledged. Plain integer comparisons fail after counter wrap.
         if !sequence_after(packet_end, self.recv) {
             if packet_debug_enabled() {
                 eprintln!(
@@ -665,6 +682,18 @@ mod tests {
 
         assert_eq!(ready.len(), 1);
         assert_eq!(session.recv, 4);
+    }
+
+    #[test]
+    fn stale_overlapping_packet_after_handoff_does_not_create_gap() {
+        let mut session = PTCPSession::from_state(0, 24, 0, 0, 0);
+        let stale = payload_packet(4, 24);
+
+        let ready = session.recv(stale);
+
+        assert!(ready.is_empty());
+        assert_eq!(session.recv, 24);
+        assert_eq!(session.gap_packets, 0);
     }
 
     #[test]
