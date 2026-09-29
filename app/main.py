@@ -396,7 +396,7 @@ def live_view(camera_id: int, subtype: int = 0):
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
                 "-rw_timeout", "15000000", "-rtsp_transport", "tcp", "-i", uri,
                 "-an", "-vf", "fps=10", "-q:v", "5",
-                "-f", "mpjpeg", "pipe:1",
+                "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -406,17 +406,39 @@ def live_view(camera_id: int, subtype: int = 0):
         raise HTTPException(503, "FFmpeg is not installed in the bridge image") from error
 
     def frames():
+        # FFmpeg writes a raw JPEG sequence.  Re-wrap each complete JPEG in a
+        # browser-safe multipart response instead of forwarding the muxer's
+        # own headers, which some browsers render as a black image.
+        buffer = bytearray()
         try:
             assert process.stdout is not None
-            # Read whatever FFmpeg has already produced.  Buffered
-            # read(64 KiB) can wait for a full block and leave the browser
-            # with a permanently black live view even though RTSP itself works.
             output_fd = process.stdout.fileno()
             while True:
                 chunk = os.read(output_fd, 64 * 1024)
                 if not chunk:
                     break
-                yield chunk
+                buffer.extend(chunk)
+                while True:
+                    start = buffer.find(b"\\xff\\xd8")
+                    if start < 0:
+                        if len(buffer) > 2:
+                            del buffer[:-2]
+                        break
+                    end = buffer.find(b"\\xff\\xd9", start + 2)
+                    if end < 0:
+                        if start:
+                            del buffer[:start]
+                        break
+                    end += 2
+                    jpeg = bytes(buffer[start:end])
+                    del buffer[:end]
+                    yield (
+                        b"--frame\\r\\n"
+                        b"Content-Type: image/jpeg\\r\\n"
+                        + f"Content-Length: {len(jpeg)}\\r\\n\\r\\n".encode()
+                        + jpeg
+                        + b"\\r\\n"
+                    )
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -427,7 +449,7 @@ def live_view(camera_id: int, subtype: int = 0):
 
     return StreamingResponse(
         frames(),
-        media_type="multipart/x-mixed-replace; boundary=ffmpeg",
+        media_type="multipart/x-mixed-replace; boundary=frame",
         headers={"Cache-Control": "no-store", "X-Stream-Subtype": str(subtype)},
     )
 
