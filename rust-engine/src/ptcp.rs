@@ -312,6 +312,7 @@ impl PTCPSession {
             rmid,
             pending: HashMap::new(),
             gap_packets: 0,
+            gap_since: None,
             sent_window: VecDeque::new(),
             allow_gap_skip: true,
         }
