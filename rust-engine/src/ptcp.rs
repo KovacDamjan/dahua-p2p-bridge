@@ -272,7 +272,11 @@ struct TrackedPacket {
 
 const GAP_PACKET_LIMIT: usize = 32;
 const RETRANSMIT_AFTER: Duration = Duration::from_millis(600);
-const MAX_RETRANSMITS: u8 = 8;
+// Relay links can pause for several seconds while Easy4IP migrates or
+// retransmits a PTCP window. Do not tear down the whole camera session
+// after the old 8-retry (~4.8 s) threshold; the APK keeps the channel alive
+// while the SDK recovers it.
+const MAX_RETRANSMITS: u8 = 50;
 const MAX_SENT_WINDOW: usize = 2048;
 
 fn gap_timeout() -> Duration {
