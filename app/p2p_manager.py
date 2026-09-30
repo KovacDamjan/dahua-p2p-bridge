@@ -5,8 +5,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-LOG_HISTORY_LIMIT = max(100, int(os.getenv("P2P_LOG_HISTORY", "1000")))
-LOG_STATUS_LIMIT = max(20, int(os.getenv("P2P_LOG_STATUS_LINES", "500")))
+LOG_HISTORY_LIMIT = max(500, int(os.getenv("P2P_LOG_HISTORY", "10000")))
+LOG_STATUS_LIMIT = max(100, int(os.getenv("P2P_LOG_STATUS_LINES", "5000")))
 TRANSIENT_RETRY_SECONDS = max(1, int(os.getenv("P2P_TRANSIENT_RETRY_SECONDS", "60")))
 TRANSIENT_FAILURE_MARKERS = (
     "timed out",
@@ -225,12 +225,14 @@ class P2PManager:
             worker.services["onvif"] = state
         else:
             worker.services[service] = state
-        self._append_worker_log(
-            worker,
-            "[P2P] Starting shared RTSP + ONVIF P2P session"
-            if service == "both"
-            else f"[P2P] Starting {service.upper()} P2P session",
-        )
+        if service == "both":
+            start_message = "[P2P] Starting shared RTSP + ONVIF P2P session"
+        else:
+            start_message = (
+                f"[P2P] [{service.upper()}] Starting "
+                f"{service.upper()} P2P session"
+            )
+        self._append_worker_log(worker, start_message)
         threading.Thread(
             target=self._read_output,
             args=(camera_id, worker, state),
@@ -243,7 +245,11 @@ class P2PManager:
         assert state.process.stdout is not None
         for raw_line in state.process.stdout:
             line = raw_line.rstrip()
-            self._append_worker_log(worker, f"[P2P] {line}")
+            # Keep RTSP and ONVIF output distinguishable. During recovery both
+            # workers write into the same per-camera history, so an untagged
+            # line makes the failed session impossible to reconstruct.
+            service_tag = state.service.upper()
+            self._append_worker_log(worker, f"[P2P] [{service_tag}] {line}")
             with self._lock:
                 if line.startswith("READY remote="):
                     parts = dict(item.split("=", 1) for item in line.split()[1:] if "=" in item)
