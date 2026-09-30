@@ -669,7 +669,14 @@ def main(
         relay_remote.rport = agent_port
 
     relay_remote.request_ptcp(b"\x00\x03\x01\x00")
-    res = relay_remote.read_ptcp()
+    try:
+        # Never leave the worker blocked forever after a reconnect. If the
+        # relay does not answer, the manager must restart this session.
+        res = relay_remote.read_ptcp(timeout=15)
+    except (OSError, socket.timeout) as error:
+        raise ConnectionError(
+            f"Relay PTCP sync timed out after reconnect: {error}"
+        ) from error
 
     if transport == "relay":
         if res.body != b"\x00\x03\x01\x00":
