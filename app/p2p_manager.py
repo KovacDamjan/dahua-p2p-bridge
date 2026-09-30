@@ -46,12 +46,19 @@ class WorkerState:
     @property
     def status(self) -> str:
         statuses = [state.status for state in self.services.values()]
-        if "online" in statuses:
+        if not statuses:
+            return "stopped"
+        # A camera is usable only when every required local channel is ready.
+        # Reporting online when only ONVIF is alive hides a dead RTSP stream
+        # from Surveillance Station.
+        if all(status == "online" for status in statuses):
             return "online"
         if "error" in statuses:
             return "error"
-        if statuses and all(status == "online" for status in statuses):
-            return "online"
+        if "connecting" in statuses:
+            return "connecting"
+        if "online" in statuses:
+            return "connecting"
         return "stopped"
 
     @property
@@ -265,6 +272,7 @@ class P2PManager:
         return_code = state.process.wait()
         restart = False
         restart_delay = 1
+        peer_restart_service: str | None = None
         with self._lock:
             current = self._workers.get(camera_id)
             if current is worker and any(
@@ -289,6 +297,26 @@ class P2PManager:
                     )
                     self._append_worker_log(worker, restart_message)
                     restart = True
+
+                    # If ONVIF detected the dead PTCP tunnel while RTSP is
+                    # already stuck in connecting, rebuilding ONVIF alone
+                    # leaves the camera permanently offline in Surveillance
+                    # Station. Rebuild the peer RTSP session as well.
+                    if state.service == "onvif":
+                        rtsp_state = worker.services.get("rtsp")
+                        if (
+                            rtsp_state is not None
+                            and rtsp_state is not state
+                            and rtsp_state.status == "connecting"
+                            and rtsp_state.process.poll() is None
+                        ):
+                            peer_restart_service = "rtsp"
+                            rtsp_state.last_error = None
+                            self._append_worker_log(
+                                worker,
+                                "[P2P] RTSP channel is still connecting; "
+                                "rebuilding the RTSP session with ONVIF",
+                            )
                 elif return_code != 0 and any(
                     marker in line.lower()
                     for line in recent_logs
@@ -317,6 +345,25 @@ class P2PManager:
                     )
                 ):
                     self._start_service(camera_id, worker, state.service)
+
+                if (
+                    peer_restart_service is not None
+                    and self._workers.get(camera_id) is worker
+                ):
+                    peer_state = worker.services.get(peer_restart_service)
+                    if peer_state is not None:
+                        if peer_state.process.poll() is None:
+                            peer_state.process.terminate()
+                            try:
+                                peer_state.process.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                peer_state.process.kill()
+                        self._append_worker_log(
+                            worker,
+                            "[P2P] Restarting RTSP after the ONVIF "
+                            "channel detected a stalled tunnel",
+                        )
+                        self._start_service(camera_id, worker, peer_restart_service)
 
     def stop(self, camera_id: int) -> None:
         with self._lock:
