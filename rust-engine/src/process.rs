@@ -171,10 +171,27 @@ pub async fn process_writer(
         channels.lock().unwrap().remove(&realm_id);
         return;
     }
+    let mut media_announced = false;
+    let mut response_announced = false;
     loop {
         let Some(data) = rx.recv().await else {
             break;
         };
+        if !response_announced && data.starts_with(b"RTSP/") {
+            let line = String::from_utf8_lossy(
+                data.split(|byte| *byte == b'\r' || *byte == b'\n')
+                    .next()
+                    .unwrap_or(&data),
+            );
+            println!("RTSP camera response: {line}");
+            response_announced = true;
+        }
+        // Interleaved RTP/RTCP starts with '$'. Log only the first media
+        // chunk; logging every packet would itself destabilize the bridge.
+        if !media_announced && data.first() == Some(&b'$') {
+            println!("RTSP media data: {} bytes", data.len());
+            media_announced = true;
+        }
         if writer.write_all(&data).await.is_err() {
             println!("Writer: Socket closed by peer.");
             break;
@@ -247,6 +264,14 @@ pub async fn process_reader(
             if http_request_complete(&http_request) {
                 http_request.clear();
             }
+        } else {
+            let line = String::from_utf8_lossy(
+                buf[..n]
+                    .split(|byte| *byte == b'\r' || *byte == b'\n')
+                    .next()
+                    .unwrap_or(&buf[..n]),
+            );
+            println!("RTSP client request: {line}");
         }
         dh_tx
             .send(PTCPEvent::Data(realm_id, buf[0..n].to_vec()))
