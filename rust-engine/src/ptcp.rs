@@ -259,6 +259,9 @@ pub struct PTCPSession {
     pending: HashMap<u32, PTCPPacket>,
     gap_packets: usize,
     gap_since: Option<Instant>,
+    // Last point at which an in-order PTCP packet was delivered.
+    // Retransmission retries alone are not enough to decide that a session is dead.
+    last_progress: Instant,
     sent_window: VecDeque<TrackedPacket>,
     // Never skip bytes in RTSP video; doing so corrupts H264/H265 frames.
     allow_gap_skip: bool,
@@ -302,6 +305,7 @@ impl PTCPSession {
             pending: HashMap::new(),
             gap_packets: 0,
             gap_since: None,
+            last_progress: Instant::now(),
             sent_window: VecDeque::new(),
             allow_gap_skip: true,
         }
@@ -317,6 +321,7 @@ impl PTCPSession {
             pending: HashMap::new(),
             gap_packets: 0,
             gap_since: None,
+            last_progress: Instant::now(),
             sent_window: VecDeque::new(),
             allow_gap_skip: true,
         }
@@ -487,6 +492,9 @@ impl PTCPSession {
             self.recv = self.recv.wrapping_add(packet.body.len() as u32);
             ready.push(packet);
         }
+        if !ready.is_empty() {
+            self.last_progress = Instant::now();
+        }
         if self.pending.is_empty() {
             self.gap_packets = 0;
             self.gap_since = None;
@@ -511,9 +519,15 @@ impl PTCPSession {
     }
 
     pub fn has_retransmission_stall(&self) -> bool {
-        self.sent_window
-            .iter()
-            .any(|tracked| tracked.retries >= MAX_RETRANSMITS)
+        // Do not rebuild a healthy session merely because one old packet is
+        // still awaiting an acknowledgement while newer packets are flowing.
+        // A reconnect is justified only when retransmissions are exhausted
+        // and the ordered stream has made no progress for a further grace
+        // period.
+        self.sent_window.iter().any(|tracked| {
+            tracked.retries >= MAX_RETRANSMITS
+                && self.last_progress.elapsed() >= Duration::from_secs(15)
+        })
     }
 
     pub fn due_retransmissions(&mut self) -> Vec<PTCPPacket> {
