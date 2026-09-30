@@ -325,22 +325,32 @@ class P2PManager:
                     state.process.kill()
 
     def status(self, camera_id: int) -> dict:
+        # Copy worker state under the manager lock, then read the log buffer
+        # separately.  _read_output() appends under _log_lock before it may
+        # update service state under _lock; taking the locks in the opposite
+        # order here can deadlock the API after sustained camera traffic.
         with self._lock:
             worker = self._workers.get(camera_id)
             if worker is None:
                 return {"status": "stopped", "last_error": None, "logs": []}
-            with self._log_lock:
-                logs = worker.logs[-LOG_STATUS_LIMIT:]
-            return {
-                "status": worker.status,
-                "last_error": worker.last_error,
-                "port": worker.port,
-                "services": {
-                    name: {"status": state.status, "last_error": state.last_error}
-                    for name, state in worker.services.items()
-                },
-                "logs": logs,
+            worker_status = worker.status
+            worker_last_error = worker.last_error
+            worker_port = worker.port
+            services = {
+                name: {"status": state.status, "last_error": state.last_error}
+                for name, state in worker.services.items()
             }
+
+        with self._log_lock:
+            logs = list(worker.logs[-LOG_STATUS_LIMIT:])
+
+        return {
+            "status": worker_status,
+            "last_error": worker_last_error,
+            "port": worker_port,
+            "services": services,
+            "logs": logs,
+        }
 
     def stop_all(self) -> None:
         with self._lock:
