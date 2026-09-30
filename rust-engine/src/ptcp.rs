@@ -275,7 +275,7 @@ const RETRANSMIT_AFTER: Duration = Duration::from_millis(600);
 const MAX_RETRANSMITS: u8 = 8;
 const MAX_SENT_WINDOW: usize = 2048;
 
-fn video_gap_timeout() -> Duration {
+fn gap_timeout() -> Duration {
     static TIMEOUT: OnceLock<Duration> = OnceLock::new();
     *TIMEOUT.get_or_init(|| {
         let millis = std::env::var("P2P_VIDEO_GAP_TIMEOUT_MS")
@@ -429,20 +429,20 @@ impl PTCPSession {
             .values()
             .any(|pending| matches!(&pending.body, PTCPBody::Payload(_)));
         let safe_to_skip = !is_video_payload && !video_pending;
-        let video_gap_expired = video_pending
-            && self
-                .gap_since
-                .map(|started| started.elapsed() >= video_gap_timeout())
-                .unwrap_or(false);
+        let gap_expired = self
+            .gap_since
+            .map(|started| started.elapsed() >= gap_timeout())
+            .unwrap_or(false);
 
-        // Keep waiting briefly for retransmission, but do not freeze a live
-        // stream forever. DMSS-style live playback skips a lost video packet
-        // after the timeout and lets the decoder recover at the next keyframe.
+        // Keep waiting briefly for retransmission, but do not freeze the
+        // session forever. If any control or video gap remains unresolved,
+        // advance after the timeout so the relay can continue and the
+        // manager does not tear down an otherwise usable session.
         if self.allow_gap_skip
-            && (safe_to_skip || video_gap_expired)
+            && (safe_to_skip || gap_expired)
             && (is_recovery_command
                 || self.gap_packets >= GAP_PACKET_LIMIT
-                || video_gap_expired)
+                || gap_expired)
         {
             let next_start = self
                 .pending
@@ -458,8 +458,8 @@ impl PTCPSession {
                 self.gap_packets,
                 self.recv,
                 next_start,
-                if video_gap_expired {
-                    " after video gap timeout"
+                if gap_expired {
+                    " after gap timeout"
                 } else {
                     ""
                 }
