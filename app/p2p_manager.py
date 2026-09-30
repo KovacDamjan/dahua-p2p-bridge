@@ -97,13 +97,31 @@ class P2PManager:
         if os.getenv("P2P_BACKEND", "").lower() == "vendor":
             self._start_vendor_service(camera_id, worker)
         else:
-            # RTSP and ONVIF share one authenticated P2P session.
-            # Easy4IP accepts one channel negotiation per device; two
-            # independent workers race their /p2p-channel requests and both
-            # remain stuck waiting for the NAT response. The Rust engine
-            # multiplexes both local listeners over one PTCP tunnel.
-            self._start_service(camera_id, worker, "both")
+            # DMSS creates separate port-mapped P2P channels for RTSP and
+            # HTTP/ONVIF. Keep the local listeners independent as well: a
+            # stalled ONVIF request must not block the RTSP video tunnel.
+            self._start_service(camera_id, worker, "rtsp")
+            threading.Thread(
+                target=self._start_onvif_after_rtsp,
+                args=(camera_id, worker),
+                daemon=True,
+            ).start()
         return worker
+
+    def _start_onvif_after_rtsp(self, camera_id: int, worker: WorkerState) -> None:
+        # Give the RTSP channel a short head start. This avoids sending two
+        # channel negotiations at the exact same instant while still making
+        # ONVIF available automatically for Surveillance Station.
+        delay = max(
+            0.0,
+            float(os.getenv("P2P_ONVIF_START_DELAY_SECONDS", "3")),
+        )
+        time.sleep(delay)
+        with self._lock:
+            if self._workers.get(camera_id) is not worker:
+                return
+            if "onvif" not in worker.services:
+                self._start_service(camera_id, worker, "onvif")
 
     def _append_worker_log(self, worker: WorkerState, message: str) -> None:
         with self._log_lock:
@@ -175,8 +193,8 @@ class P2PManager:
             "--type",
             "1",
             "--service",
-            # RTSP and ONVIF share one authenticated P2P session; the Rust
-            # engine multiplexes both local listeners over that tunnel.
+            # Each service owns its own authenticated P2P session, matching
+            # the separate RTSP and HTTP port mappings used by DMSS.
             service,
             "--bind-port",
             str(bind_port),
