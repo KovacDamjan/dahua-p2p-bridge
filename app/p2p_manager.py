@@ -263,11 +263,16 @@ class P2PManager:
                         worker.services["onvif"].last_error = None
                     if parts.get("remote") == "554":
                         state.online_since = time.monotonic()
-                elif "Ready to connect" in line:
+                elif "RTSP media data:" in line and state.service == "rtsp":
+                    # The P2P transport is ready before RTSP has produced video.
+                    # Do not report RTSP online until media actually arrives.
                     state.status = "online"
                     state.last_error = None
-                    if line == "Ready to connect!":
-                        state.online_since = time.monotonic()
+                    state.online_since = time.monotonic()
+                elif "Ready to connect" in line:
+                    # Transport/listener readiness is not proof that RTSP PLAY
+                    # succeeded. The RTSP media marker above is authoritative.
+                    state.last_error = None
                 elif "optional ONVIF channel unavailable" in line:
                     if "onvif" in worker.services:
                         worker.services["onvif"].status = "error"
