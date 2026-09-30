@@ -184,9 +184,13 @@ async fn main() {
         args.session_id,
         args.session_rmid,
     );
-    let allow_gap_skip = std::env::var("P2P_SERVICE")
-        .map(|service| service.to_ascii_lowercase() != "rtsp")
-        .unwrap_or(true);
+    // Match the DMSS/SDK behavior: preserve PTCP byte order for both
+    // RTSP video and ONVIF control traffic. A persistent gap must trigger
+    // retransmission or a full session reconnect; silently skipping bytes
+    // corrupts the stream and can make the camera appear frozen.
+    let allow_gap_skip = std::env::var("P2P_ALLOW_GAP_SKIP")
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false);
     session.set_allow_gap_skip(allow_gap_skip);
     println!("PTCP gap policy: {}", if allow_gap_skip { "recovery-skip" } else { "strict-ordering" });
     let (dh_tx, dh_rx) = mpsc::channel::<PTCPEvent>(128);
