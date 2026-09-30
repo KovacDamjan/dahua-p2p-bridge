@@ -258,6 +258,7 @@ pub struct PTCPSession {
     rmid: u32,
     pending: HashMap<u32, PTCPPacket>,
     gap_packets: usize,
+    gap_since: Option<Instant>,
     sent_window: VecDeque<TrackedPacket>,
     // Never skip bytes in RTSP video; doing so corrupts H264/H265 frames.
     allow_gap_skip: bool,
@@ -272,8 +273,19 @@ struct TrackedPacket {
 const GAP_PACKET_LIMIT: usize = 32;
 const RETRANSMIT_AFTER: Duration = Duration::from_millis(600);
 const MAX_RETRANSMITS: u8 = 8;
-// Stable RTSP baseline: preserve ordered video bytes; recovery remains disabled until verified.
 const MAX_SENT_WINDOW: usize = 2048;
+
+fn video_gap_timeout() -> Duration {
+    static TIMEOUT: OnceLock<Duration> = OnceLock::new();
+    *TIMEOUT.get_or_init(|| {
+        let millis = std::env::var("P2P_VIDEO_GAP_TIMEOUT_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value >= 250)
+            .unwrap_or(2000);
+        Duration::from_millis(millis)
+    })
+}
 
 impl PTCPSession {
     pub fn new() -> PTCPSession {
@@ -285,6 +297,7 @@ impl PTCPSession {
             rmid: 0,
             pending: HashMap::new(),
             gap_packets: 0,
+            gap_since: None,
             sent_window: VecDeque::new(),
             allow_gap_skip: true,
         }
@@ -402,6 +415,9 @@ impl PTCPSession {
         let is_video_payload = matches!(&packet.body, PTCPBody::Payload(_));
         self.pending.insert(packet_start, packet);
         self.gap_packets += 1;
+        if self.gap_since.is_none() {
+            self.gap_since = Some(Instant::now());
+        }
 
         // Control packets may be skipped after a persistent loss, but video
         // payloads must never be skipped. Dropping bytes from an H264/H265
@@ -412,13 +428,20 @@ impl PTCPSession {
             .values()
             .any(|pending| matches!(&pending.body, PTCPBody::Payload(_)));
         let safe_to_skip = !is_video_payload && !video_pending;
+        let video_gap_expired = video_pending
+            && self
+                .gap_since
+                .map(|started| started.elapsed() >= video_gap_timeout())
+                .unwrap_or(false);
 
-        // Acknowledge only the last contiguous byte while the gap is short so
-        // the camera can retransmit it. Advance only for a control-only gap;
-        // never jump over a video payload.
+        // Keep waiting briefly for retransmission, but do not freeze a live
+        // stream forever. DMSS-style live playback skips a lost video packet
+        // after the timeout and lets the decoder recover at the next keyframe.
         if self.allow_gap_skip
-            && safe_to_skip
-            && (is_recovery_command || self.gap_packets >= GAP_PACKET_LIMIT)
+            && (safe_to_skip || video_gap_expired)
+            && (is_recovery_command
+                || self.gap_packets >= GAP_PACKET_LIMIT
+                || video_gap_expired)
         {
             let next_start = self
                 .pending
@@ -430,8 +453,15 @@ impl PTCPSession {
                 return Vec::new();
             };
             eprintln!(
-                "PTCP receive gap persisted for {} packets; skipping bytes {}..{}",
-                self.gap_packets, self.recv, next_start
+                "PTCP receive gap persisted for {} packets; skipping bytes {}..{}{}",
+                self.gap_packets,
+                self.recv,
+                next_start,
+                if video_gap_expired {
+                    " after video gap timeout"
+                } else {
+                    ""
+                }
             );
             self.recv = next_start;
             return self.drain_contiguous();
@@ -452,7 +482,12 @@ impl PTCPSession {
             self.recv = self.recv.wrapping_add(packet.body.len() as u32);
             ready.push(packet);
         }
-        self.gap_packets = if self.pending.is_empty() { 0 } else { 1 };
+        if self.pending.is_empty() {
+            self.gap_packets = 0;
+            self.gap_since = None;
+        } else {
+            self.gap_packets = 1;
+        }
         ready
     }
 
