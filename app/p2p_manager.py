@@ -81,6 +81,9 @@ class P2PManager:
         # Log output can be very noisy (especially ONVIF PullMessages). Keep it
         # independent from worker state so status/UI requests never wait on logs.
         self._log_lock = threading.Lock()
+        # Serialize lifecycle changes per camera. Test/reconnect/startup may
+        # otherwise launch two workers that race for the same RTSP port.
+        self._lifecycle_locks: dict[int, threading.RLock] = {}
 
     def port_for(self, camera_id: int) -> int:
         if camera_id < 1 or camera_id > self.max_cameras:
@@ -90,30 +93,41 @@ class P2PManager:
     def onvif_port_for(self, camera_id: int) -> int:
         return self.port_for(camera_id) + 1000
 
+    def _lifecycle_lock_for(self, camera_id: int) -> threading.RLock:
+        with self._lock:
+            lock = self._lifecycle_locks.get(camera_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._lifecycle_locks[camera_id] = lock
+            return lock
+
     def start(self, camera: dict, password: str) -> WorkerState:
         camera_id = int(camera["id"])
-        self.stop(camera_id)
-        if camera["vendor"] not in ("dahua", "policetech"):
-            raise ValueError(f"P2P adapter for {camera['vendor']} is not implemented")
+        with self._lifecycle_lock_for(camera_id):
+            self.stop(camera_id)
+            if camera["vendor"] not in ("dahua", "policetech"):
+                raise ValueError(
+                    f"P2P adapter for {camera['vendor']} is not implemented"
+                )
 
-        worker = WorkerState(
-            port=self.port_for(camera_id), camera=dict(camera), password=password
-        )
-        with self._lock:
-            self._workers[camera_id] = worker
-        if os.getenv("P2P_BACKEND", "").lower() == "vendor":
-            self._start_vendor_service(camera_id, worker)
-        else:
-            # DMSS creates separate port-mapped P2P channels for RTSP and
-            # HTTP/ONVIF. Keep the local listeners independent as well: a
-            # stalled ONVIF request must not block the RTSP video tunnel.
-            self._start_service(camera_id, worker, "rtsp")
-            threading.Thread(
-                target=self._start_onvif_after_rtsp,
-                args=(camera_id, worker),
-                daemon=True,
-            ).start()
-        return worker
+            worker = WorkerState(
+                port=self.port_for(camera_id), camera=dict(camera), password=password
+            )
+            with self._lock:
+                self._workers[camera_id] = worker
+            if os.getenv("P2P_BACKEND", "").lower() == "vendor":
+                self._start_vendor_service(camera_id, worker)
+            else:
+                # DMSS creates separate port-mapped P2P channels for RTSP and
+                # HTTP/ONVIF. Keep the local listeners independent as well:
+                # a stalled ONVIF request must not block RTSP video.
+                self._start_service(camera_id, worker, "rtsp")
+                threading.Thread(
+                    target=self._start_onvif_after_rtsp,
+                    args=(camera_id, worker),
+                    daemon=True,
+                ).start()
+            return worker
 
     def _start_onvif_after_rtsp(self, camera_id: int, worker: WorkerState) -> None:
         # Give the RTSP channel a short head start. This avoids sending two
@@ -124,11 +138,12 @@ class P2PManager:
             float(os.getenv("P2P_ONVIF_START_DELAY_SECONDS", "3")),
         )
         time.sleep(delay)
-        with self._lock:
-            if self._workers.get(camera_id) is not worker:
-                return
-            if "onvif" not in worker.services:
-                self._start_service(camera_id, worker, "onvif")
+        with self._lifecycle_lock_for(camera_id):
+            with self._lock:
+                if self._workers.get(camera_id) is not worker:
+                    return
+                if "onvif" not in worker.services:
+                    self._start_service(camera_id, worker, "onvif")
 
     def _append_worker_log(self, worker: WorkerState, message: str) -> None:
         with self._log_lock:
@@ -348,35 +363,42 @@ class P2PManager:
 
         if restart:
             threading.Event().wait(restart_delay)
-            with self._lock:
-                if (
-                    self._workers.get(camera_id) is worker
-                    and any(
-                        value is state for value in worker.services.values()
-                    )
-                ):
-                    self._start_service(camera_id, worker, state.service)
-
-                if (
-                    peer_restart_service is not None
-                    and self._workers.get(camera_id) is worker
-                ):
-                    peer_state = worker.services.get(peer_restart_service)
-                    if peer_state is not None:
-                        if peer_state.process.poll() is None:
-                            peer_state.process.terminate()
-                            try:
-                                peer_state.process.wait(timeout=5)
-                            except subprocess.TimeoutExpired:
-                                peer_state.process.kill()
-                        self._append_worker_log(
-                            worker,
-                            "[P2P] Restarting RTSP after the ONVIF "
-                            "channel detected a stalled tunnel",
+            with self._lifecycle_lock_for(camera_id):
+                with self._lock:
+                    if (
+                        self._workers.get(camera_id) is worker
+                        and any(
+                            value is state for value in worker.services.values()
                         )
-                        self._start_service(camera_id, worker, peer_restart_service)
+                    ):
+                        self._start_service(camera_id, worker, state.service)
+
+                    if (
+                        peer_restart_service is not None
+                        and self._workers.get(camera_id) is worker
+                    ):
+                        peer_state = worker.services.get(peer_restart_service)
+                        if peer_state is not None:
+                            if peer_state.process.poll() is None:
+                                peer_state.process.terminate()
+                                try:
+                                    peer_state.process.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    peer_state.process.kill()
+                            self._append_worker_log(
+                                worker,
+                                "[P2P] Restarting RTSP after the ONVIF "
+                                "channel detected a stalled tunnel",
+                            )
+                            self._start_service(
+                                camera_id, worker, peer_restart_service
+                            )
 
     def stop(self, camera_id: int) -> None:
+        with self._lifecycle_lock_for(camera_id):
+            self._stop_locked(camera_id)
+
+    def _stop_locked(self, camera_id: int) -> None:
         with self._lock:
             worker = self._workers.pop(camera_id, None)
         if not worker:
