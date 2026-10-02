@@ -1,4 +1,5 @@
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -176,8 +177,13 @@ class P2PManager:
             "--map", f"554:{rtsp_port}",
         ]
         process = subprocess.Popen(
-            command, env=env, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, bufsize=1
+            command,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
         )
         state = ServiceState(process=process, service="rtsp")
         worker.services["rtsp"] = state
@@ -233,6 +239,7 @@ class P2PManager:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
         state = ServiceState(process=process, service=service)
         if service == "both":
@@ -379,12 +386,7 @@ class P2PManager:
                     ):
                         peer_state = worker.services.get(peer_restart_service)
                         if peer_state is not None:
-                            if peer_state.process.poll() is None:
-                                peer_state.process.terminate()
-                                try:
-                                    peer_state.process.wait(timeout=5)
-                                except subprocess.TimeoutExpired:
-                                    peer_state.process.kill()
+                            self._terminate_process_group(peer_state.process)
                             self._append_worker_log(
                                 worker,
                                 "[P2P] Restarting RTSP after the ONVIF "
@@ -393,6 +395,27 @@ class P2PManager:
                             self._start_service(
                                 camera_id, worker, peer_restart_service
                             )
+
+    def _terminate_process_group(self, process: subprocess.Popen) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
 
     def stop(self, camera_id: int) -> None:
         with self._lifecycle_lock_for(camera_id):
@@ -413,14 +436,7 @@ class P2PManager:
             worker.proxy_process.terminate()
         states = list({id(state): state for state in worker.services.values()}.values())
         for state in states:
-            if state.process.poll() is None:
-                state.process.terminate()
-        for state in states:
-            if state.process.poll() is None:
-                try:
-                    state.process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    state.process.kill()
+            self._terminate_process_group(state.process)
 
     def status(self, camera_id: int) -> dict:
         # Copy worker state under the manager lock, then read the log buffer
