@@ -216,6 +216,23 @@ fn http_response_complete(data: &[u8]) -> bool {
     }
 }
 
+
+fn is_rtsp_request(data: &[u8]) -> bool {
+    [
+        b"OPTIONS ".as_slice(),
+        b"DESCRIBE ".as_slice(),
+        b"SETUP ".as_slice(),
+        b"PLAY ".as_slice(),
+        b"PAUSE ".as_slice(),
+        b"TEARDOWN ".as_slice(),
+        b"GET_PARAMETER ".as_slice(),
+        b"ANNOUNCE ".as_slice(),
+        b"RECORD ".as_slice(),
+    ]
+    .iter()
+    .any(|prefix| data.starts_with(prefix))
+}
+
 /**
  * Read data from the client and send it to the channel
  */
@@ -228,6 +245,7 @@ pub async fn process_reader(
 ) {
     let mut buf = [0u8; 4096];
     let mut http_request = Vec::new();
+    let mut request_announced = false;
 
     loop {
         let n = match reader.read(&mut buf).await {
@@ -264,7 +282,7 @@ pub async fn process_reader(
             if http_request_complete(&http_request) {
                 http_request.clear();
             }
-        } else {
+        } else if !request_announced && is_rtsp_request(&buf[..n]) {
             let line = String::from_utf8_lossy(
                 buf[..n]
                     .split(|byte| *byte == b'\r' || *byte == b'\n')
@@ -272,6 +290,7 @@ pub async fn process_reader(
                     .unwrap_or(&buf[..n]),
             );
             println!("RTSP client request: {line}");
+            request_announced = true;
         }
         dh_tx
             .send(PTCPEvent::Data(realm_id, buf[0..n].to_vec()))
