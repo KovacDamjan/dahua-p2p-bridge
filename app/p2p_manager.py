@@ -1,4 +1,5 @@
 import os
+import random
 import signal
 import subprocess
 import sys
@@ -324,6 +325,7 @@ class P2PManager:
                     state.online_since = None
                     state.reconnect_attempt += 1
                     restart_delay = min(30, 2 ** min(state.reconnect_attempt, 5))
+                    restart_delay += random.uniform(0.0, 5.0)
                     restart_message = (
                         "[P2P] P2P engine requested reconnect; "
                         f"rebuilding this session in {restart_delay} seconds"
@@ -362,7 +364,7 @@ class P2PManager:
                     )
                     self._append_worker_log(worker, retry_message)
                     restart = True
-                    restart_delay = TRANSIENT_RETRY_SECONDS
+                    restart_delay = TRANSIENT_RETRY_SECONDS + random.uniform(0.0, 10.0)
                 else:
                     state.status = "stopped" if return_code == 0 else "error"
                 if return_code not in (0, 75) and not state.last_error:
