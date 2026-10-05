@@ -3,7 +3,6 @@ DH-P2P + PTCP Implementation
 """
 import argparse
 import datetime
-import fcntl
 import random
 import os
 import select
@@ -413,24 +412,6 @@ def main(
     # Match SmartPSS channel negotiation fields and XML order.
     p2p_channel_body = build_p2p_channel_body()
 
-    # Easy4IP has one asynchronous channel-negotiation path per control
-    # server. Multiple cameras may still keep independent RTSP/ONVIF
-    # sessions, but their initial NFPOST/read exchange must not run
-    # concurrently or responses can be lost/matched to the wrong socket.
-    channel_lock_fd = None
-    if transport == "direct":
-        channel_lock_path = os.getenv(
-            "P2P_CHANNEL_LOCK_PATH", "/tmp/dahua-p2p-channel.lock"
-        )
-        channel_lock_fd = os.open(
-            channel_lock_path, os.O_CREAT | os.O_RDWR, 0o600
-        )
-        print(
-            "CHANNEL: waiting for serialized Easy4IP channel negotiation",
-            flush=True,
-        )
-        fcntl.flock(channel_lock_fd, fcntl.LOCK_EX)
-        print("CHANNEL: acquired serialized negotiation lock", flush=True)
     if transport == "relay":
         # Relay transport does not require the direct device channel response.
         # The relay-channel negotiation below creates the authenticated PTCP
@@ -632,12 +613,6 @@ def main(
                 res = None
             finally:
                 channel_remote.settimeout(None)
-
-        if channel_lock_fd is not None:
-            fcntl.flock(channel_lock_fd, fcntl.LOCK_UN)
-            os.close(channel_lock_fd)
-            channel_lock_fd = None
-            print("CHANNEL: released serialized negotiation lock", flush=True)
 
     if res is None:
         raise ConnectionError(
