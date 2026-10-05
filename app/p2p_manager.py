@@ -120,11 +120,15 @@ class P2PManager:
             if os.getenv("P2P_BACKEND", "").lower() == "vendor":
                 self._start_vendor_service(camera_id, worker)
             else:
-                # Keep RTSP and ONVIF on one authenticated P2P session.
-                # This is the stable path for Easy4IP: a second simultaneous
-                # /p2p-channel negotiation can leave cameras waiting forever
-                # for Server Nat Info.
-                self._start_service(camera_id, worker, "both")
+                # RTSP and ONVIF use separate authenticated P2P sessions.
+                # This matches the APK/DMSS port mapping and keeps a stalled
+                # ONVIF request from blocking the RTSP video tunnel.
+                self._start_service(camera_id, worker, "rtsp")
+                threading.Thread(
+                    target=self._start_onvif_after_rtsp,
+                    args=(camera_id, worker),
+                    daemon=True,
+                ).start()
             return worker
 
     def _start_onvif_after_rtsp(self, camera_id: int, worker: WorkerState) -> None:
@@ -218,8 +222,7 @@ class P2PManager:
             "--type",
             "1",
             "--service",
-            # One authenticated session multiplexes RTSP and ONVIF
-            # over the same PTCP tunnel.
+            # RTSP and ONVIF each own an authenticated P2P session.
             service,
             "--bind-port",
             str(bind_port),
