@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 LOG_HISTORY_LIMIT = max(500, int(os.getenv("P2P_LOG_HISTORY", "10000")))
 LOG_STATUS_LIMIT = max(100, int(os.getenv("P2P_LOG_STATUS_LINES", "5000")))
-TRANSIENT_RETRY_SECONDS = max(1, int(os.getenv("P2P_TRANSIENT_RETRY_SECONDS", "60")))
+TRANSIENT_RETRY_SECONDS = max(1, int(os.getenv("P2P_TRANSIENT_RETRY_SECONDS", "15")))
 TRANSIENT_FAILURE_MARKERS = (
     "timed out",
     "temporary failure in name resolution",
