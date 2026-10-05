@@ -33,6 +33,7 @@ class ServiceState:
     last_error: str | None = None
     reconnect_attempt: int = 0
     online_since: float | None = None
+    ready_event: threading.Event = field(default_factory=threading.Event)
 
 
 @dataclass
@@ -132,14 +133,33 @@ class P2PManager:
             return worker
 
     def _start_onvif_after_rtsp(self, camera_id: int, worker: WorkerState) -> None:
-        # Give the RTSP channel a short head start. This avoids sending two
-        # channel negotiations at the exact same instant while still making
-        # ONVIF available automatically for Surveillance Station.
-        delay = max(
-            0.0,
-            float(os.getenv("P2P_ONVIF_START_DELAY_SECONDS", "3")),
+        # Keep the two sessions separate, but let RTSP finish the initial
+        # Easy4IP/PTCP negotiation before opening the ONVIF session. A fixed
+        # three-second delay is unreliable when STUN or the channel response
+        # is slow and can make RTSP and ONVIF race each other.
+        wait_seconds = max(
+            10.0,
+            float(os.getenv("P2P_ONVIF_WAIT_FOR_RTSP_SECONDS", "90")),
         )
-        time.sleep(delay)
+        deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < deadline:
+            with self._lock:
+                if self._workers.get(camera_id) is not worker:
+                    return
+                rtsp_state = worker.services.get("rtsp")
+            if rtsp_state is None:
+                return
+            if rtsp_state.ready_event.wait(timeout=1.0):
+                break
+            if rtsp_state.process.poll() is not None:
+                break
+        else:
+            self._append_worker_log(
+                worker,
+                "[P2P] RTSP negotiation did not become ready within "
+                f"{wait_seconds:.0f}s; starting ONVIF independently",
+            )
+
         with self._lifecycle_lock_for(camera_id):
             with self._lock:
                 if self._workers.get(camera_id) is not worker:
@@ -292,8 +312,9 @@ class P2PManager:
                     state.last_error = None
                     state.online_since = time.monotonic()
                 elif "Ready to connect" in line:
-                    # Transport/listener readiness is not proof that RTSP PLAY
-                    # succeeded. The RTSP media marker above is authoritative.
+                    # This marks completion of the authenticated P2P transport
+                    # setup. It is the hand-off point for starting ONVIF.
+                    state.ready_event.set()
                     state.last_error = None
                 elif "optional ONVIF channel unavailable" in line:
                     if "onvif" in worker.services:
@@ -302,6 +323,7 @@ class P2PManager:
                 elif "Error:" in line or "Traceback" in line:
                     state.last_error = line
 
+        state.ready_event.set()
         return_code = state.process.wait()
         restart = False
         restart_delay = 1
