@@ -171,13 +171,19 @@ def startup() -> None:
     init_db()
     with db() as connection:
         rows = connection.execute("SELECT * FROM cameras WHERE enabled=1").fetchall()
-    for row in rows:
+    startup_delay = max(
+        0.0, float(os.getenv("P2P_CAMERA_START_DELAY_SECONDS", "8"))
+    )
+    for index, row in enumerate(rows):
         try:
             password = cipher().decrypt(row["password_enc"].encode()).decode()
             p2p_manager.start(dict(row), password)
         except (InvalidToken, ValueError) as error:
             # The status endpoint exposes the actionable error after a manual retry.
             print(f"Could not start camera {row['id']}: {error}")
+        if index < len(rows) - 1 and startup_delay:
+            # Avoid opening all RTSP and ONVIF Easy4IP sessions at once.
+            time.sleep(startup_delay)
 
 
 @app.on_event("shutdown")
