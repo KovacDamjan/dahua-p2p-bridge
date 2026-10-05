@@ -158,83 +158,6 @@ def main(
             f"No Easy4IP P2P server responded on UDP {main_port}: {last_probe_error}"
         )
 
-    def prime_stun(remote):
-        # SmartPSS primes STUN before channel negotiation. Easy4IP may
-        # temporarily return an unhealthy STUN node, so refresh the endpoint
-        # instead of continuing with a failed NAT classification.
-        refresh_attempts = 3
-        for refresh in range(1, refresh_attempts + 1):
-            stun_remote = None
-            try:
-                stun_res = remote.request("/online/stun", request_cseq=0)
-                stun_body = (stun_res.get("data") or {}).get("body") or {}
-                stun_address = stun_body.get("STUN")
-                if not stun_address:
-                    print("STUN: cloud returned no STUN endpoint", flush=True)
-                    return False
-
-                stun_server, stun_port = stun_address.rsplit(":", 1)
-                stun_port = int(stun_port)
-                probe_count = int(stun_body.get("PortNum") or 6)
-                check_space = int(stun_body.get("CheckSpace") or 240)
-                print(
-                    f"STUN: probing {stun_server}:{stun_port} "
-                    f"({probe_count} probes, spacing {check_space}ms, "
-                    f"refresh {refresh}/{refresh_attempts})",
-                    flush=True,
-                )
-
-                stun_remote = UDP(stun_server, stun_port, debug)
-                stun_remote.settimeout(2)
-                sequence = random.randint(-(2**31), 2**31 - probe_count - 1)
-                mapped = False
-                for offset in range(probe_count):
-                    probe_sequence = sequence + offset
-                    probe_body = (
-                        f"<body><seq>{probe_sequence}</seq>"
-                        "<replaceHost>0</replaceHost><replacePort>0</replacePort></body>"
-                    )
-                    try:
-                        probe_res = stun_remote.request(
-                            "/p2p/stun/probe",
-                            probe_body,
-                            request_method="NFGET",
-                            request_cseq=0,
-                        )
-                        result = (probe_res.get("data") or {}).get("body") or {}
-                        if result.get("ip") and result.get("port"):
-                            mapped = True
-                            print(
-                                f"STUN: mapped {result['ip']}:{result['port']} "
-                                f"ttl={result.get('ttl', '?')}",
-                                flush=True,
-                            )
-                    except (OSError, socket.timeout, ValueError, ConnectionError) as error:
-                        print(
-                            f"STUN: probe {offset + 1}/{probe_count} failed: {error}",
-                            flush=True,
-                        )
-                    if offset + 1 < probe_count and check_space > 0:
-                        time.sleep(check_space / 1000)
-
-                if mapped:
-                    return True
-                print(
-                    f"STUN: endpoint {stun_server}:{stun_port} did not respond; "
-                    "refreshing endpoint",
-                    flush=True,
-                )
-            except (OSError, socket.timeout, ValueError, KeyError, ConnectionError) as error:
-                print(f"STUN: refresh {refresh}/{refresh_attempts} failed: {error}", flush=True)
-            finally:
-                if stun_remote is not None:
-                    stun_remote.close()
-
-        print("STUN: no endpoint responded; continuing without STUN priming", flush=True)
-        return False
-
-    prime_stun(main_remote)
-
     res = main_remote.request(f"/online/p2psrv/{serial}")
 
     ds_server, ds_port = res["data"]["body"]["DS"].split(":")
@@ -299,24 +222,8 @@ def main(
         print("Device reported no salt, continuing without one.")
 
     device_remote = UDP(main_server, main_port, debug)
-    # Easy4IP DNS can resolve to a control node that answers probes but does
-    # not return the asynchronous p2p-channel response for this device.
-    # Keep the DNS-selected node first, then try a node observed in the
-    # working SmartPSS capture. An explicit environment override can add the
-    # current node without another image rebuild.
-    channel_targets = [main_server]
-    configured_channel_target = os.getenv("P2P_CHANNEL_SERVER", "").strip()
-    if configured_channel_target and configured_channel_target not in channel_targets:
-        channel_targets.append(configured_channel_target)
-    if "165.154.165.252" not in channel_targets:
-        channel_targets.append("165.154.165.252")
-    print(
-        f"CHANNEL: candidate Easy4IP targets {', '.join(f'{host}:{main_port}' for host in channel_targets)}",
-        flush=True,
-    )
-    # Keep the pending p2p-channel response on its own UDP socket. SmartPSS
-    # uses independent control sockets for channel negotiation and relay setup.
-    channel_remote = UDP(main_server, main_port, debug)
+    # SmartPSS uses one UDP source port for the complete channel flow.
+    channel_remote = main_remote
 
     # Advertise the NAS LAN address to Easy4IP. 127.0.0.1 is only a
     # local bind address and causes the cloud to silently discard the channel
@@ -331,7 +238,7 @@ def main(
             advertise_ip = route_probe.getsockname()[0]
         finally:
             route_probe.close()
-    laddr = f"{advertise_ip}:{channel_remote.lport}"
+    laddr = f"{advertise_ip}:{main_remote.lport}"
     print(f"CHANNEL: advertising LocalAddr {laddr}", flush=True)
     auth = ""
     ipaddr = ""
@@ -375,17 +282,18 @@ def main(
     relay_pcs_request_id = __import__("uuid").uuid4().hex
 
     def setup_relay_agent():
-        # Keep relay discovery on a separate source socket from the pending
-        # p2p-channel request. This matches SmartPSS and prevents the delayed
-        # Server Nat Info response from being consumed by relay setup.
-        relay_remote = UDP(main_server, main_port, debug)
-        relay_res = relay_remote.request(
-            "/online/relay", pcs_request_id=relay_pcs_request_id
+        # SmartPSS creates the relay agent after the pending direct channel
+        # request has been sent, and uses the same PCS request id.
+        main_remote.rhost = main_server
+        main_remote.rport = main_port
+        relay_res = main_remote.request(
+            "/online/relay",
+            pcs_request_id=relay_pcs_request_id,
         )
         relay_server, relay_port = relay_res["data"]["body"]["Address"].split(":")
-        relay_remote.rhost = relay_server
-        relay_remote.rport = int(relay_port)
-        agent_res = relay_remote.request(
+        main_remote.rhost = relay_server
+        main_remote.rport = int(relay_port)
+        agent_res = main_remote.request(
             "/relay/agent",
             f"<body><Dev>{serial}</Dev></body>",
             pcs_request_id=relay_pcs_request_id,
@@ -393,30 +301,25 @@ def main(
         token = agent_res["data"]["body"]["Token"]
         agent_server, agent_port = agent_res["data"]["body"]["Agent"].split(":")
         agent_port = int(agent_port)
-        relay_remote.rhost = agent_server
-        relay_remote.rport = agent_port
-        relay_start_res = relay_remote.request(
+        main_remote.rhost = agent_server
+        main_remote.rport = agent_port
+        main_remote.request(
             f"/relay/start/{token}",
             f"<body><Dev>{serial}</Dev><Client>:0</Client></body>",
+            should_read=False,
             pcs_request_id=relay_pcs_request_id,
         )
-        if relay_start_res["code"] >= 400:
-            relay_remote.close()
-            raise ConnectionError(
-                "relay/start rejected: " + relay_start_res["status"]
-            )
-        relay_remote.rhost = main_server
-        relay_remote.rport = main_port
-        return relay_remote, relay_pcs_request_id, agent_server, agent_port
+        main_remote.rhost = main_server
+        main_remote.rport = main_port
+        return agent_server, agent_port
 
     # Match SmartPSS channel negotiation fields and XML order.
     p2p_channel_body = build_p2p_channel_body()
-
     if transport == "relay":
         # Relay transport does not require the direct device channel response.
         # The relay-channel negotiation below creates the authenticated PTCP
         # session and hands it to the Rust engine.
-        relay_remote, relay_pcs_request_id, agent_server, agent_port = setup_relay_agent()
+        agent_server, agent_port = setup_relay_agent()
         print("CHANNEL: relay-only mode; skipping direct p2p-channel", flush=True)
         res = {
             "code": 200,
@@ -425,9 +328,9 @@ def main(
     else:
         pcs_request_id = relay_pcs_request_id
         print(f"CHANNEL: PCS request id {pcs_request_id}", flush=True)
-        channel_remote.rhost = channel_targets[0]
+        channel_remote.rhost = main_server
         channel_remote.rport = main_port
-        print(f"CHANNEL: requesting via Easy4IP {channel_remote.rhost}:{main_port}", flush=True)
+        print(f"CHANNEL: requesting via Easy4IP {main_server}:{main_port}", flush=True)
         channel_remote.request(
             f"/device/{serial}/p2p-channel",
             p2p_channel_body,
@@ -443,7 +346,7 @@ def main(
         # request is pending. The p2p-channel request is fire-and-forget in
         # the captured flow: SmartPSS does not wait for an HTTP response before
         # switching to the binary PTCP tunnel on the relay agent.
-        relay_remote, relay_pcs_request_id, agent_server, agent_port = setup_relay_agent()
+        agent_server, agent_port = setup_relay_agent()
 
         if os.getenv("P2P_WAIT_FOR_CHANNEL_RESPONSE", "0").strip() != "1":
             print(
@@ -458,13 +361,9 @@ def main(
             channel_remote.rport = main_port
             channel_remote.settimeout(45)
             try:
-                nat_info_response = channel_remote.read_for_cseq(
-                    p2p_request_cseq, return_error=True
-                )
+                nat_info_response = channel_remote.read(return_error=True)
                 while nat_info_response["code"] < 200:
-                    nat_info_response = channel_remote.read_for_cseq(
-                        p2p_request_cseq, return_error=True
-                    )
+                    nat_info_response = channel_remote.read(return_error=True)
                 if nat_info_response["code"] >= 400:
                     raise ConnectionError(
                         "p2p-channel rejected: "
@@ -487,24 +386,22 @@ def main(
                     f"<agentAddr>{agent_server}:{agent_port}</agentAddr></body>"
                 )
 
-                relay_remote.rhost = main_server
-                relay_remote.rport = main_port
-                relay_remote.request(
+                main_remote.rhost = main_server
+                main_remote.rport = main_port
+                main_remote.request(
                     f"/device/{serial}/relay-channel",
                     relay_channel_body,
                     should_read=False,
                     pcs_request_id=pcs_request_id,
-                    request_method="NFPOST",
                 )
-                relay_channel_cseq = relay_remote.last_request_cseq
-                relay_remote.rhost = agent_server
-                relay_remote.rport = agent_port
-                relay_channel_response = relay_remote.read_for_cseq(
-                    relay_channel_cseq, return_error=True
+                main_remote.rhost = agent_server
+                main_remote.rport = agent_port
+                relay_channel_response = main_remote.read(
+                    return_error=True
                 )
                 while relay_channel_response["code"] < 200:
-                    relay_channel_response = relay_remote.read_for_cseq(
-                        relay_channel_cseq, return_error=True
+                    relay_channel_response = main_remote.read(
+                        return_error=True
                     )
                 if relay_channel_response["code"] >= 400:
                     raise ConnectionError(
@@ -516,8 +413,8 @@ def main(
                     flush=True,
                 )
 
-                relay_remote.request_ptcp(b"\x00\x03\x01\x00")
-                relay_sync = relay_remote.read_ptcp(timeout=8)
+                main_remote.request_ptcp(b"\x00\x03\x01\x00")
+                relay_sync = main_remote.read_ptcp(timeout=8)
                 if relay_sync.body == b"\x00\x03\x01\x00":
                     print(
                         f"CHANNEL: PTCP relay ready via {agent_server}:{agent_port}",
@@ -525,7 +422,7 @@ def main(
                     )
                     device_remote.close()
                     launch_engine(
-                        relay_remote,
+                        main_remote,
                         socketserver,
                         onvif_socketserver,
                         rtsp_port,
@@ -544,68 +441,32 @@ def main(
                 )
             finally:
                 channel_remote.settimeout(None)
-                relay_remote.settimeout(None)
+                main_remote.settimeout(None)
 
-        # If the early relay handshake timed out after the control server
-        # already returned Server Nat Info, preserve that response. The old
-        # fallback discarded it and tried to read the same UDP response again,
-        # guaranteeing five false p2p-channel timeouts.
-        res = locals().get("nat_info_response")
+        res = None
         last_channel_error = None
         channel_attempts = 5
-        retry_attempts = (
-            range(1, channel_attempts + 1) if res is None else ()
-        )
-        if res is not None:
-            print(
-                "CHANNEL: preserving Server Nat Info; "
-                "continuing with direct PTCP fallback",
-                flush=True,
-            )
-        for attempt in retry_attempts:
+        for attempt in range(1, channel_attempts + 1):
             # Relay setup reuses the same socket and changes its destination;
             # every retry must explicitly go back to the Easy4IP control server.
-            target_index = min(attempt - 1, len(channel_targets) - 1)
-            channel_remote.rhost = channel_targets[target_index]
+            channel_remote.rhost = main_server
             channel_remote.rport = main_port
             if attempt > 1:
-                # A timed-out UDP control socket may still contain late
-                # Server Nat Info from the previous attempt. SmartPSS starts
-                # the next request on a fresh control socket; do the same so
-                # stale responses cannot poison the next CSeq match.
-                try:
-                    channel_remote.close()
-                except OSError:
-                    pass
-                channel_remote = UDP(main_server, main_port, debug)
-                print(
-                    f"CHANNEL: retry target {channel_targets[target_index]}:{main_port}",
-                    flush=True,
-                )
-                print(
-                    f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})",
-                    flush=True,
-                )
+                print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
                 p2p_channel_body = build_p2p_channel_body()
-                channel_remote.rhost = channel_targets[target_index]
-                channel_remote.rport = main_port
                 channel_remote.request(
                     f"/device/{serial}/p2p-channel",
                     p2p_channel_body,
                     should_read=False,
                     pcs_request_id=pcs_request_id,
+                    request_cseq=p2p_request_cseq,
                     request_method="NFPOST",
                 )
-                p2p_request_cseq = channel_remote.last_request_cseq
             channel_remote.settimeout(45)
             try:
-                res = channel_remote.read_for_cseq(
-                    p2p_request_cseq, return_error=True
-                )
+                res = channel_remote.read(return_error=True)
                 while res["code"] < 200:
-                    res = channel_remote.read_for_cseq(
-                        p2p_request_cseq, return_error=True
-                    )
+                    res = channel_remote.read(return_error=True)
                 break
             except (OSError, socket.timeout) as error:
                 last_channel_error = error
@@ -670,41 +531,33 @@ def main(
             auth = get_auth(username, key, nonce, randsalt)
         channel_remote.rhost = ds_server
         channel_remote.rport = ds_port
-        relay_remote.request(
+        channel_remote.request(
             f"/device/{serial}/relay-channel",
             f"<body>{auth}<sVersion>1.1.0</sVersion>"
             f"<agentAddr>{agent_server}:{agent_port}</agentAddr></body>",
             should_read=False,
             pcs_request_id=relay_pcs_request_id,
-            request_method="NFPOST",
         )
-        relay_remote.rhost = agent_server
-        relay_remote.rport = agent_port
-        relay_remote.settimeout(10)
+        main_remote.rhost = agent_server
+        main_remote.rport = agent_port
+        main_remote.settimeout(10)
         try:
-            relay_nat_response = relay_remote.read()
+            relay_nat_response = main_remote.read()
         except (OSError, socket.timeout) as error:
             raise ConnectionError(
                 f"Agent server {agent_server}:{agent_port} did not return NAT info: {error}"
             ) from error
         finally:
-            relay_remote.settimeout(None)
+            main_remote.settimeout(None)
     else:
         # In direct mode the p2p-channel response is the NAT response. Restore
         # the relay agent endpoint for the PTCP sign exchange; do not create a
         # second relay session or send relay-channel.
-        relay_remote.rhost = agent_server
-        relay_remote.rport = agent_port
+        main_remote.rhost = agent_server
+        main_remote.rport = agent_port
 
-    relay_remote.request_ptcp(b"\x00\x03\x01\x00")
-    try:
-        # Never leave the worker blocked forever after a reconnect. If the
-        # relay does not answer, the manager must restart this session.
-        res = relay_remote.read_ptcp(timeout=15)
-    except (OSError, socket.timeout) as error:
-        raise ConnectionError(
-            f"Relay PTCP sync timed out after reconnect: {error}"
-        ) from error
+    main_remote.request_ptcp(b"\x00\x03\x01\x00")
+    res = main_remote.read_ptcp()
 
     if transport == "relay":
         if res.body != b"\x00\x03\x01\x00":
@@ -715,18 +568,18 @@ def main(
         )
         device_remote.close()
         launch_engine(
-            relay_remote,
+            main_remote,
             socketserver,
             onvif_socketserver,
             rtsp_port,
             public_rtsp_port or actual_rtsp_port,
         )
 
-    relay_remote.request_ptcp(b"\x17\x00\x00\x00" + b"\x00\x00\x00\x00\x00\x00\x00\x00")
+    main_remote.request_ptcp(b"\x17\x00\x00\x00" + b"\x00\x00\x00\x00\x00\x00\x00\x00")
     sign = None
     for _ in range(12):
         try:
-            res = relay_remote.read_ptcp(timeout=3)
+            res = main_remote.read_ptcp(timeout=3)
         except socket.timeout:
             break
         control = f"0x{res.body[0]:02X}" if res.body else "ACK"
@@ -737,7 +590,7 @@ def main(
         )
         if res.body and res.body[0] == 0x13:
             print("Acknowledging relay PTCP heartbeat 0x13", flush=True)
-            relay_remote.request_ptcp()
+            main_remote.request_ptcp()
             continue
         if len(res.body) > 12 and res.body[0] == 0x18:
             sign = res.body[12:]
@@ -746,7 +599,7 @@ def main(
         raise ConnectionError("Relay server did not return PTCP sign response 0x18")
     print(f"Relay PTCP sign received ({len(sign)} bytes)", flush=True)
 
-    relay_remote.request_ptcp()
+    main_remote.request_ptcp()
 
     device_remote.rhost = device_server
     device_remote.rport = device_port
@@ -850,7 +703,7 @@ def main(
         )
         device_remote.close()
         launch_engine(
-            relay_remote,
+            main_remote,
             socketserver,
             onvif_socketserver,
             rtsp_port,
@@ -867,7 +720,7 @@ def main(
         )
         device_remote.close()
         launch_engine(
-            relay_remote,
+            main_remote,
             socketserver,
             onvif_socketserver,
             rtsp_port,
