@@ -120,15 +120,11 @@ class P2PManager:
             if os.getenv("P2P_BACKEND", "").lower() == "vendor":
                 self._start_vendor_service(camera_id, worker)
             else:
-                # DMSS creates separate port-mapped P2P channels for RTSP and
-                # HTTP/ONVIF. Keep the local listeners independent as well:
-                # a stalled ONVIF request must not block RTSP video.
-                self._start_service(camera_id, worker, "rtsp")
-                threading.Thread(
-                    target=self._start_onvif_after_rtsp,
-                    args=(camera_id, worker),
-                    daemon=True,
-                ).start()
+                # Keep RTSP and ONVIF on one authenticated P2P session.
+                # This is the stable path for Easy4IP: a second simultaneous
+                # /p2p-channel negotiation can leave cameras waiting forever
+                # for Server Nat Info.
+                self._start_service(camera_id, worker, "both")
             return worker
 
     def _start_onvif_after_rtsp(self, camera_id: int, worker: WorkerState) -> None:
@@ -222,8 +218,8 @@ class P2PManager:
             "--type",
             "1",
             "--service",
-            # Each service owns its own authenticated P2P session, matching
-            # the separate RTSP and HTTP port mappings used by DMSS.
+            # One authenticated session multiplexes RTSP and ONVIF
+            # over the same PTCP tunnel.
             service,
             "--bind-port",
             str(bind_port),
