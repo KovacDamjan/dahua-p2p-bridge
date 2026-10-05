@@ -555,12 +555,26 @@ def main(
             channel_remote.rhost = channel_targets[target_index]
             channel_remote.rport = main_port
             if attempt > 1:
+                # A timed-out UDP control socket may still contain late
+                # Server Nat Info from the previous attempt. SmartPSS starts
+                # the next request on a fresh control socket; do the same so
+                # stale responses cannot poison the next CSeq match.
+                try:
+                    channel_remote.close()
+                except OSError:
+                    pass
+                channel_remote = UDP(main_server, main_port, debug)
                 print(
-                    f"CHANNEL: retry target {channel_remote.rhost}:{main_port}",
+                    f"CHANNEL: retry target {channel_targets[target_index]}:{main_port}",
                     flush=True,
                 )
-                print(f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})", flush=True)
+                print(
+                    f"Retrying P2P channel request (attempt {attempt}/{channel_attempts})",
+                    flush=True,
+                )
                 p2p_channel_body = build_p2p_channel_body()
+                channel_remote.rhost = channel_targets[target_index]
+                channel_remote.rport = main_port
                 channel_remote.request(
                     f"/device/{serial}/p2p-channel",
                     p2p_channel_body,
