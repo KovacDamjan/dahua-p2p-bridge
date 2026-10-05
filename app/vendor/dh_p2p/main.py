@@ -545,10 +545,23 @@ def main(
                 channel_remote.settimeout(None)
                 relay_remote.settimeout(None)
 
-        res = None
+        # If the early relay handshake timed out after the control server
+        # already returned Server Nat Info, preserve that response. The old
+        # fallback discarded it and tried to read the same UDP response again,
+        # guaranteeing five false p2p-channel timeouts.
+        res = locals().get("nat_info_response")
         last_channel_error = None
         channel_attempts = 5
-        for attempt in range(1, channel_attempts + 1):
+        retry_attempts = (
+            range(1, channel_attempts + 1) if res is None else ()
+        )
+        if res is not None:
+            print(
+                "CHANNEL: preserving Server Nat Info; "
+                "continuing with direct PTCP fallback",
+                flush=True,
+            )
+        for attempt in retry_attempts:
             # Relay setup reuses the same socket and changes its destination;
             # every retry must explicitly go back to the Easy4IP control server.
             target_index = min(attempt - 1, len(channel_targets) - 1)
